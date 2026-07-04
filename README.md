@@ -176,8 +176,7 @@ immune-annotation-pipeline/
 ├── 02_kofamscan/               KofamScan run + KEGG immune filtering
 ├── 03_orthofinder/             OrthoFinder + orthogroup statistics
 ├── 04_tiering/                 evidence integration + symbols + figures
-├── docs/PIPELINE_OVERVIEW.md   detailed per-script I/O reference
-└── extras/                     side scripts not part of the core pipeline
+└── docs/PIPELINE_OVERVIEW.md   detailed per-script I/O reference
 ```
 
 See [`docs/PIPELINE_OVERVIEW.md`](docs/PIPELINE_OVERVIEW.md) for a per-script
