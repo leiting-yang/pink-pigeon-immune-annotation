@@ -1,0 +1,31 @@
+# Data / results (paths point outside the repo on the HPC anyway)
+*.gff3
+*.fasta
+*.faa
+*.fa
+*.tsv
+*.csv
+*.txt
+*.json
+*.bed
+
+# Keep config tables that ARE part of the repo
+!config/chromosome_id_map.tsv
+
+# Figures
+*.png
+*.pdf
+
+# SLURM logs
+*.out
+*.err
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Editor
+.vscode/
+.idea/

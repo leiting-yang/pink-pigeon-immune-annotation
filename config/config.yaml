@@ -1,0 +1,123 @@
+# =============================================================================
+# Pink Pigeon immune-gene annotation pipeline - central configuration
+# =============================================================================
+# This file is the single source of truth for all data paths and parameters
+# used by the Python stages. Every Python script accepts `--config <this file>`
+# and reads its defaults from here; any value can still be overridden on the
+# command line (CLI argument wins over the config value).
+#
+# SLURM batch scripts (interproscan_run.sh, run_kofam.sh, run_orthofind.sh) keep
+# their own clearly-marked USER CONFIG block at the top, because they also carry
+# HPC-specific resource requests (partition, memory, email). Keep those in sync
+# with the paths below by hand.
+#
+# Edit the absolute paths in `reference:` and `external_data:` once for your
+# environment. Relative paths are resolved against `work_dir` of each stage.
+# =============================================================================
+
+# Root working directory. Stage work_dirs below are usually subfolders of this.
+project_root: /path/to/your/workspace
+
+# -----------------------------------------------------------------------------
+# Reference inputs (produced by the genome annotation project / downloaded once)
+# -----------------------------------------------------------------------------
+reference:
+  # Raw genome annotation with simple chromosome IDs (1, 2, Z, W, ...)
+  gff3_raw: /maps/projects/echo/data/PPigeons/Annotation/Nesoenas_mayeri-GCA_963082525.1-2023_10-genes.gff3
+  # Reference genome FASTA (INSDC accessions as sequence IDs)
+  genome_fasta: /maps/projects/echo/data/PPigeons/Reference/GCA_963082525.1_bNesMay2.1_genomic.fasta
+  # Pink Pigeon CDS protein FASTA used as InterProScan input
+  protein_fasta_interproscan: CDS_protein_seq.fa
+  # Pink Pigeon protein FASTA used as KofamScan input
+  protein_fasta_kofam: PinkPigeon.faa
+
+# -----------------------------------------------------------------------------
+# External data that MUST be prepared manually (see README "Manual steps")
+# -----------------------------------------------------------------------------
+external_data:
+  # AmiGO export: all children of GO:0002376 (immune system process) plus
+  # "immune" keyword hits in MF/CC. Comma-separated GO term list.
+  go_terms_immune: go_terms_immune_system_process.txt
+  # Ensembl BioMart exports for the three reference species
+  chicken_biomart: processed_chicken_biomart.csv
+  zebrafinch_biomart: processed_zebrafinch_biomart.csv
+  mouse_biomart: processed_mouse_biomart.csv
+  # Manually curated mouse immune-gene functional annotation (published)
+  curated_list: ImmuneGeneFunction_20240520.csv
+  # Conserved avian immune-gene functional database (unpublished)
+  gene_info: gene_info.csv
+  # Pink Pigeon native gene-symbol table from the annotation pipeline
+  # (2 columns: Gene Symbol <TAB> Gene ID)
+  ppg_native_symbols: Nesoenas_genes_by_name.tsv
+
+# Reference species used throughout the OrthoFinder / tiering stages
+species:
+  reference: [Mouse, Chicken, ZebraFinch]
+  target: PinkPigeon
+
+# =============================================================================
+# Stage 00 - preprocessing (chromosome-ID normalization)
+# =============================================================================
+preprocess:
+  work_dir: /path/to/your/workspace/preprocess
+  # Chromosome ID mapping table (simple ID <TAB> INSDC accession)
+  chromosome_map: config/chromosome_id_map.tsv
+  gff3_renamed: NM_genes.renamed.gff3      # all chromosomes, IDs renamed
+  gff3_autosomes: NM_genes.final.gff3      # autosomes only (Z / W removed)
+
+# =============================================================================
+# Stage 01 - InterProScan
+# =============================================================================
+interproscan:
+  work_dir: /path/to/your/workspace/interproscan
+  merged_tsv: ipr_out/interproscan_merged.tsv          # merged InterProScan output
+  immune_results: interproscan_immune_results.csv      # immunewash.py output
+
+# =============================================================================
+# Stage 02 - KofamScan
+# =============================================================================
+kofamscan:
+  work_dir: /path/to/your/workspace/kofam
+  processing_dir: /path/to/your/workspace/kofam/processing
+  kegg_json: ko00001.json                              # KEGG ko00001 hierarchy
+  kofam_detail: result_kofam_detail.txt                # raw KofamScan detail-tsv
+  transcript_to_gene: transcript_to_gene.txt
+  step_filtered_score: step1_filtered_score.txt
+  step_immune_only: step2_immune_only.txt
+  step_deduplicated: step3_final_deduplicated.txt
+  gene_level: final_kofam_gene_level.tsv
+  annotated: final_kofam_annotated.tsv                 # final KofamScan output
+
+# =============================================================================
+# Stage 03 - OrthoFinder
+# =============================================================================
+orthofinder:
+  work_dir: /path/to/your/workspace/orthofinder
+  input_dir: ortho_input                               # 4 species protein FASTAs
+  # OrthoFinder standard outputs (paths under the Results_* folder it creates)
+  orthogroups_tsv: Orthogroups.tsv
+  genecount_tsv: Orthogroups.GeneCount.tsv
+  duplications_tsv: Duplications.tsv
+  orthologues_dir: Orthologues/Orthologues_PinkPigeon
+  # Reference immune-protein lookup tables
+  reference_mouse: reference_mouse_final.csv
+  master_lookup: master_lookup_table.csv
+  # Filtering / statistics outputs
+  filtered_list: PinkPigeon_Final_Filtered_List.csv
+  og_stats_summary: OG_stats_summary.tsv
+  filtered_with_og_stats: PinkPigeon_Final_Filtered_List_with_OG_stats.csv
+  filtered_with_orthology: PinkPigeon_Final_Filtered_List_with_OG_stats_and_orthology.csv
+
+# =============================================================================
+# Stage 04 - tiering (evidence integration + symbol prediction + figures)
+# =============================================================================
+tiering:
+  work_dir: /path/to/your/workspace/tier2
+  master_list: PinkPigeon_Immune_Gene_Master_List.csv
+  annotated_final: PinkPigeon_Immune_Annotated_Final.csv
+  unmapped_symbols: Unmapped_Gene_Info_Symbols.txt
+  predict_result: PinkPigeon_Immune_Predict_Result_Final.csv
+  predict_with_og_stats: PinkPigeon_Immune_Predict_Result_Final_with_OG_stats.csv
+  unmapped_og_proteins: Unmapped_OG_ProteinIDs.txt
+  final_table: PinkPigeon_Immune_Predict_Result_Final_with_OG_and_Orthology.csv
+  figure_dir: figures
