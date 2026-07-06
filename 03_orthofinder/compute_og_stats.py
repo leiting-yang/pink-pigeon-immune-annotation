@@ -13,9 +13,9 @@ For each candidate OG it computes, from the reference species only:
   - gene-copy variance / SD and duplication density
 
 Inputs : Orthogroups.tsv, Orthogroups.GeneCount.tsv, Duplications.tsv,
-         master_lookup_table.csv, PinkPigeon_Final_Filtered_List.csv
+         master_lookup_table.csv, Final_Filtered_List.csv
 Outputs: OG_stats_summary.tsv,
-         PinkPigeon_Final_Filtered_List_with_OG_stats.csv
+         Final_Filtered_List_with_OG_stats.csv
 """
 
 import argparse
@@ -110,7 +110,7 @@ def parse_args():
     p.add_argument("--genecount", help="Orthogroups.GeneCount.tsv")
     p.add_argument("--duplications", help="Duplications.tsv")
     p.add_argument("--master", help="master_lookup_table.csv")
-    p.add_argument("--filtered", help="PinkPigeon_Final_Filtered_List.csv")
+    p.add_argument("--filtered", help="Final_Filtered_List.csv")
     p.add_argument("--out-summary", help="OG_stats_summary.tsv")
     p.add_argument("--out-merged", help="..._with_OG_stats.csv")
     return p.parse_args()
@@ -135,10 +135,10 @@ def main():
     genecount_tsv = args.genecount or wd(orth.get("genecount_tsv", "Orthogroups.GeneCount.tsv"))
     dup_tsv = args.duplications or wd(orth.get("duplications_tsv", "Duplications.tsv"))
     master_csv = args.master or wd(orth.get("master_lookup", "master_lookup_table.csv"))
-    filtered_csv = args.filtered or wd(orth.get("filtered_list", "PinkPigeon_Final_Filtered_List.csv"))
+    filtered_csv = args.filtered or wd(orth.get("filtered_list", "Final_Filtered_List.csv"))
     out_summary = args.out_summary or wd(orth.get("og_stats_summary", "OG_stats_summary.tsv"))
     out_merged = args.out_merged or wd(orth.get("filtered_with_og_stats",
-                                               "PinkPigeon_Final_Filtered_List_with_OG_stats.csv"))
+                                               "Final_Filtered_List_with_OG_stats.csv"))
 
     print(">>> Loading files...")
     df_filtered = pd.read_csv(filtered_csv, encoding="utf-8-sig")

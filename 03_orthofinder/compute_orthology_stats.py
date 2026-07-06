@@ -8,8 +8,8 @@ species and combine it with reference immune-gene status, then merge onto the
 OG-stats table. Species-agnostic (driven by `species:` in the config).
 
 Inputs : {target}__v__{species}.tsv (Orthologues), master_lookup_table.csv,
-         PinkPigeon_Final_Filtered_List_with_OG_stats.csv
-Output : PinkPigeon_Final_Filtered_List_with_OG_stats_and_orthology.csv
+         Final_Filtered_List_with_OG_stats.csv
+Output : Final_Filtered_List_with_OG_stats_and_orthology.csv
 """
 
 import argparse
@@ -90,12 +90,12 @@ def main():
         return os.path.join(work, name) if work else name
 
     orthologues_dir = args.orthologues_dir or wd(orth.get("orthologues_dir",
-                                                          "Orthologues/Orthologues_PinkPigeon"))
+                                                          f"Orthologues/Orthologues_{target}"))
     master_csv = args.master or wd(orth.get("master_lookup", "master_lookup_table.csv"))
     filtered_csv = args.filtered or wd(orth.get("filtered_with_og_stats",
-                                               "PinkPigeon_Final_Filtered_List_with_OG_stats.csv"))
+                                               "Final_Filtered_List_with_OG_stats.csv"))
     output_csv = args.output or wd(orth.get("filtered_with_orthology",
-                                           "PinkPigeon_Final_Filtered_List_with_OG_stats_and_orthology.csv"))
+                                           "Final_Filtered_List_with_OG_stats_and_orthology.csv"))
 
     orthologues_files = {
         species: os.path.join(orthologues_dir, f"{target}__v__{species}.tsv")

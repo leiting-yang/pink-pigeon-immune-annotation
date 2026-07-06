@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=ortho_pigeon
+#SBATCH --job-name=orthofinder
 #SBATCH --output=ortho.%J.out
 #SBATCH --error=ortho.%J.err
 #SBATCH --ntasks=1

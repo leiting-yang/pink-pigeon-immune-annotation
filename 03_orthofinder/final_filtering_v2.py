@@ -10,7 +10,7 @@ Species-agnostic: reference species, the target species and the per-species
 output columns all come from `species:` in the config.
 
 Inputs : Orthogroups.tsv, master_lookup_table.csv
-Output : PinkPigeon_Final_Filtered_List.csv (or the target's filtered list)
+Output : Final_Filtered_List.csv (or the target's filtered list)
 """
 
 import argparse
@@ -75,7 +75,7 @@ def main():
 
     og_file = args.orthogroups or wd(orth.get("orthogroups_tsv", "Orthogroups.tsv"))
     master_file = args.master or wd(orth.get("master_lookup", "master_lookup_table.csv"))
-    output_file = args.output or wd(orth.get("filtered_list", "PinkPigeon_Final_Filtered_List.csv"))
+    output_file = args.output or wd(orth.get("filtered_list", "Final_Filtered_List.csv"))
 
     # Per-species: which master fields to aggregate and into which output column.
     field_map = species_field_map(sp)               # (species, master_field, out_col)

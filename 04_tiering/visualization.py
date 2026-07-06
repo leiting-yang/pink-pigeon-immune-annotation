@@ -7,7 +7,7 @@ Species-agnostic: the functional-category plot uses the curated reference
 species from `species:` in the config, and prediction sources are mapped
 generically.
 
-Input : PinkPigeon_Immune_Predict_Result_Final_with_OG_and_Orthology.csv
+Input : Immune_Predict_Result_Final_with_OG_and_Orthology.csv
 Output: 7 PNG figures (300 dpi) in the figure directory.
 """
 
@@ -237,7 +237,7 @@ def main():
         return os.path.join(work, name) if work else name
 
     input_file = args.input or wd(tier.get("final_table",
-                                          "PinkPigeon_Immune_Predict_Result_Final_with_OG_and_Orthology.csv"))
+                                          "Immune_Predict_Result_Final_with_OG_and_Orthology.csv"))
     OUTDIR = args.figure_dir or wd(tier.get("figure_dir", "figures"))
     os.makedirs(OUTDIR, exist_ok=True)
 

@@ -1,10 +1,10 @@
 # Conda environment for the Python post-processing stages of the pipeline.
 # Create with:  conda env create -f envs/environment.yml
-# Activate with: conda activate pigeon_immune
+# Activate with: conda activate immune_annotation
 #
 # The heavy annotation tools (InterProScan, KofamScan, OrthoFinder, seqkit) are
 # loaded as HPC modules inside the SLURM scripts and are NOT installed here.
-name: pigeon_immune
+name: immune_annotation
 channels:
   - conda-forge
   - bioconda

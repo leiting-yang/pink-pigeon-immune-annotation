@@ -12,10 +12,10 @@ Per gene (multiple transcripts) the best value is kept per species:
 Orth_Sub_Tier = number of distinct species providing any high-weight evidence
 (1:1 immune, or 1:N all-immune); union, deduplicated.
 
-Inputs : PinkPigeon_Final_Filtered_List_with_OG_stats_and_orthology.csv,
-         PinkPigeon_Immune_Predict_Result_Final_with_OG_stats.csv,
+Inputs : Final_Filtered_List_with_OG_stats_and_orthology.csv,
+         Immune_Predict_Result_Final_with_OG_stats.csv,
          GFF3 (transcript -> gene mapping)
-Output : PinkPigeon_Immune_Predict_Result_Final_with_OG_and_Orthology.csv
+Output : Immune_Predict_Result_Final_with_OG_and_Orthology.csv
 """
 
 import argparse
@@ -173,12 +173,12 @@ def main():
         return os.path.join(tier_work, name) if tier_work else name
 
     orthology_file = args.orthology or owd(orth.get("filtered_with_orthology",
-                                                   "PinkPigeon_Final_Filtered_List_with_OG_stats_and_orthology.csv"))
+                                                   "Final_Filtered_List_with_OG_stats_and_orthology.csv"))
     final_file = args.final or twd(tier.get("predict_with_og_stats",
-                                           "PinkPigeon_Immune_Predict_Result_Final_with_OG_stats.csv"))
+                                           "Immune_Predict_Result_Final_with_OG_stats.csv"))
     gff_file = args.gff or cfg.get("reference", {}).get("gff3_raw", "annotation.gff3")
     output_file = args.output or twd(tier.get("final_table",
-                                             "PinkPigeon_Immune_Predict_Result_Final_with_OG_and_Orthology.csv"))
+                                             "Immune_Predict_Result_Final_with_OG_and_Orthology.csv"))
 
     print("Loading data...")
     df_orth = pd.read_csv(orthology_file, encoding="utf-8-sig")

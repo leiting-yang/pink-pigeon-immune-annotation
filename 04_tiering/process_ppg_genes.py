@@ -12,8 +12,8 @@ in `prediction_priority` > Kofam KO. Comparison categories: Match,
 Alternative_Match, Group_Match, Broad_Match, Paralog_Likely, Mismatch,
 Novel_Annotation, Not_Predictable, No_Info.
 
-Input : PinkPigeon_Immune_Annotated_Final.csv
-Output: PinkPigeon_Immune_Predict_Result_Final.csv
+Input : Immune_Annotated_Final.csv
+Output: Immune_Predict_Result_Final.csv
 """
 
 import argparse
@@ -177,8 +177,8 @@ def parse_args():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", help="Path to config.yaml")
-    p.add_argument("--input", help="PinkPigeon_Immune_Annotated_Final.csv")
-    p.add_argument("--output", help="PinkPigeon_Immune_Predict_Result_Final.csv")
+    p.add_argument("--input", help="Immune_Annotated_Final.csv")
+    p.add_argument("--output", help="Immune_Predict_Result_Final.csv")
     return p.parse_args()
 
 
@@ -195,8 +195,8 @@ def main():
     def wd(name):
         return os.path.join(work, name) if work else name
 
-    input_file = args.input or wd(tier.get("annotated_final", "PinkPigeon_Immune_Annotated_Final.csv"))
-    output_file = args.output or wd(tier.get("predict_result", "PinkPigeon_Immune_Predict_Result_Final.csv"))
+    input_file = args.input or wd(tier.get("annotated_final", "Immune_Annotated_Final.csv"))
+    output_file = args.output or wd(tier.get("predict_result", "Immune_Predict_Result_Final.csv"))
 
     print(f"Reading {input_file} ...")
     df = pd.read_csv(input_file)

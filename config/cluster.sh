@@ -19,7 +19,7 @@ PROTEIN_FASTA="PinkPigeon.faa"
 
 # --- Conda (used by run_kofam.sh) --------------------------------------------
 CONDA_SH="/maps/usermodules/shared_software/shared_envmodules/conda/conda-25.1.1/etc/profile.d/conda.sh"
-CONDA_ENV="pigeon_immune"
+CONDA_ENV="immune_annotation"
 
 # --- KofamScan (run_kofam.sh) ------------------------------------------------
 KOFAM_WORK_DIR="/path/to/your/workspace"

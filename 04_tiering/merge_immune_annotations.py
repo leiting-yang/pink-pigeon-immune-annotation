@@ -8,9 +8,9 @@ OrthoFinder annotation columns come from `species:` in the config.
 
 Tier 1: all three evidence sources    Tier 2: any two    Tier 3: a single source
 
-Inputs : interproscan_immune_results.csv, PinkPigeon_Final_Filtered_List.csv,
+Inputs : interproscan_immune_results.csv, Final_Filtered_List.csv,
          final_kofam_annotated.tsv, GFF3 (for transcript->gene mapping)
-Output : PinkPigeon_Immune_Gene_Master_List.csv
+Output : Immune_Gene_Master_List.csv
 """
 
 import argparse
@@ -65,7 +65,7 @@ def parse_args():
     p.add_argument("--config", help="Path to config.yaml")
     p.add_argument("--gff", help="GFF3 annotation")
     p.add_argument("--interpro", help="interproscan_immune_results.csv")
-    p.add_argument("--ortho", help="PinkPigeon_Final_Filtered_List.csv")
+    p.add_argument("--ortho", help="Final_Filtered_List.csv")
     p.add_argument("--kofam", help="final_kofam_annotated.tsv")
     p.add_argument("--output", help="Master list CSV")
     return p.parse_args()
@@ -87,10 +87,10 @@ def main():
     interpro_file = args.interpro or stage_path("interproscan", "immune_results",
                                                "interproscan_immune_results.csv")
     ortho_file = args.ortho or stage_path("orthofinder", "filtered_list",
-                                         "PinkPigeon_Final_Filtered_List.csv")
+                                         "Final_Filtered_List.csv")
     kofam_file = args.kofam or stage_path("kofamscan", "annotated", "final_kofam_annotated.tsv")
     output_file = args.output or stage_path("tiering", "master_list",
-                                           "PinkPigeon_Immune_Gene_Master_List.csv")
+                                           "Immune_Gene_Master_List.csv")
 
     tx2gene = parse_gff_transcript_to_gene(gff_file)
 

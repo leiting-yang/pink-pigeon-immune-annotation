@@ -33,7 +33,7 @@ symbols, orthology relationships, and orthogroup immune-enrichment statistics.
 
 ```bash
 conda env create -f envs/environment.yml
-conda activate pigeon_immune
+conda activate immune_annotation
 ```
 
 **Heavy annotation tools** are loaded as HPC modules inside the SLURM scripts,
@@ -43,7 +43,7 @@ not installed by the environment above:
 |------|---------|---------|
 | InterProScan | 5.73-104.0 | `01_interproscan/interproscan_run.sh` |
 | seqkit | (module) | FASTA splitting for InterProScan |
-| KofamScan (`exec_annotation`) | conda env `pigeon_immune` | `02_kofamscan/run_kofam.sh` |
+| KofamScan (`exec_annotation`) | conda env `immune_annotation` | `02_kofamscan/run_kofam.sh` |
 | OrthoFinder | 3.0.1b1 | `03_orthofinder/run_orthofind.sh` |
 
 ---
@@ -103,10 +103,15 @@ to days; submit them, wait, then run the local Python steps. The driver
 ```bash
 # extract the protein FASTA from the genome + GFF3 (input to stages 01 and 02)
 bash 00_preprocess/extract_proteins.sh -g <genome.fasta> -a <raw.gff3> -o PinkPigeon.faa
-# normalize chromosome IDs
+
+# OPTIONAL: normalize chromosome IDs. Only needed when the genome FASTA and the
+# GFF3 use different sequence IDs (e.g. an Ensembl GFF with simple IDs). Most
+# NCBI RefSeq assemblies already match, so you can skip this and use the raw
+# GFF3 directly. Run the QC below first to check.
 bash 00_preprocess/gffid_change.sh -g <raw.gff3> -m config/chromosome_id_map.tsv \
      -r NM_genes.renamed.gff3 -a NM_genes.final.gff3
-# optional QC (inspect the output by hand):
+
+# QC (inspect ids_compare.csv by hand): are the FASTA and GFF3 sequence IDs consistent?
 bash 00_preprocess/seqid_list.sh -f <genome.fasta> -g <raw.gff3>
 ```
 
@@ -151,7 +156,7 @@ python 04_tiering/merge_orthology_to_final_gene_table.py --config config/config.
 python 04_tiering/visualization.py                      --config config/config.yaml
 ```
 
-Final table: `PinkPigeon_Immune_Predict_Result_Final_with_OG_and_Orthology.csv`
+Final table: `Immune_Predict_Result_Final_with_OG_and_Orthology.csv`
 plus 7 PNG figures in the configured `figure_dir`.
 
 ---
@@ -225,10 +230,15 @@ To adapt it:
 4. **Tune symbol prediction** (optional): `consensus_group` is the set of
    species whose intersection is treated as high-confidence (use `[]` to
    disable); `prediction_priority` is the single-species fallback order.
-5. **Point `reference:` paths** at the new genome FASTA, GFF3 and protein FASTAs,
-   and update `config/chromosome_id_map.tsv` (or skip stage 00 if the annotation
-   already uses standard accessions).
-6. **Non-avian work:** set `gene_info_enrichment: false` to skip the
+5. **Point `reference:` paths** at the new genome FASTA, GFF3 and protein FASTAs.
+6. **Chromosome renaming is optional:** stage 00 `gffid_change.sh` is only needed
+   when the genome FASTA and GFF3 use different sequence IDs. Skip it (and the
+   `chromosome_id_map.tsv`) if they already match, e.g. most NCBI RefSeq
+   assemblies.
+7. **Set `orthofinder.orthologues_dir`** to your OrthoFinder output for the
+   target; the final folder is named `Orthologues_<target>` (defaults to that if
+   left unset).
+8. **Non-avian work:** set `gene_info_enrichment: false` to skip the
    avian-oriented `gene_info.csv` enrichment.
 
 Everything downstream (columns, orthology summaries, figures) follows the

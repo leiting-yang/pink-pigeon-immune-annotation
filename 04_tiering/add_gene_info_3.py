@@ -11,9 +11,9 @@ Set `species.gene_info_enrichment: false` in the config to skip the gene_info
 step (e.g. for non-avian work where that database does not apply); the native
 symbol is still added so downstream symbol comparison keeps working.
 
-Inputs : PinkPigeon_Immune_Gene_Master_List.csv, gene_info.csv (optional),
+Inputs : Immune_Gene_Master_List.csv, gene_info.csv (optional),
          Nesoenas_genes_by_name.tsv (target native symbols)
-Outputs: PinkPigeon_Immune_Annotated_Final.csv,
+Outputs: Immune_Annotated_Final.csv,
          Unmapped_Gene_Info_Symbols.txt  (only when enrichment runs)
 """
 
@@ -90,7 +90,7 @@ def parse_args():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", help="Path to config.yaml")
-    p.add_argument("--master", help="PinkPigeon_Immune_Gene_Master_List.csv")
+    p.add_argument("--master", help="Immune_Gene_Master_List.csv")
     p.add_argument("--gene-info", help="gene_info.csv")
     p.add_argument("--ppg-names", help="target native symbol TSV")
     p.add_argument("--output", help="Annotated output CSV")
@@ -111,11 +111,11 @@ def main():
     def wd(name):
         return os.path.join(work, name) if work else name
 
-    master_file = args.master or wd(tier.get("master_list", "PinkPigeon_Immune_Gene_Master_List.csv"))
+    master_file = args.master or wd(tier.get("master_list", "Immune_Gene_Master_List.csv"))
     gene_info_file = args.gene_info or cfg.get("external_data", {}).get("gene_info", "gene_info.csv")
     ppg_file = args.ppg_names or cfg.get("external_data", {}).get("ppg_native_symbols",
                                                                  "Nesoenas_genes_by_name.tsv")
-    output_file = args.output or wd(tier.get("annotated_final", "PinkPigeon_Immune_Annotated_Final.csv"))
+    output_file = args.output or wd(tier.get("annotated_final", "Immune_Annotated_Final.csv"))
     unmapped_file = args.unmapped or wd(tier.get("unmapped_symbols", "Unmapped_Gene_Info_Symbols.txt"))
 
     print("Loading master list...")

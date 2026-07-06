@@ -86,9 +86,14 @@ species:
 # =============================================================================
 # Stage 00 - preprocessing (chromosome-ID normalization)
 # =============================================================================
+# OPTIONAL stage. Chromosome renaming is only needed when the genome FASTA and
+# the GFF3 use different sequence IDs (e.g. an Ensembl GFF with simple IDs 1,2,Z
+# against an INSDC FASTA). Most NCBI RefSeq assemblies already match, so you can
+# skip gffid_change.sh entirely and point gff3_raw at the original GFF3. The
+# chromosome_map below is only read by gffid_change.sh.
 preprocess:
   work_dir: /path/to/your/workspace/preprocess
-  # Chromosome ID mapping table (simple ID <TAB> INSDC accession)
+  # Chromosome ID mapping table (simple ID <TAB> INSDC accession); species-specific
   chromosome_map: config/chromosome_id_map.tsv
   gff3_renamed: NM_genes.renamed.gff3      # all chromosomes, IDs renamed
   gff3_autosomes: NM_genes.final.gff3      # autosomes only (Z / W removed)
@@ -131,21 +136,21 @@ orthofinder:
   reference_mouse: reference_mouse_final.csv
   master_lookup: master_lookup_table.csv
   # Filtering / statistics outputs
-  filtered_list: PinkPigeon_Final_Filtered_List.csv
+  filtered_list: Final_Filtered_List.csv
   og_stats_summary: OG_stats_summary.tsv
-  filtered_with_og_stats: PinkPigeon_Final_Filtered_List_with_OG_stats.csv
-  filtered_with_orthology: PinkPigeon_Final_Filtered_List_with_OG_stats_and_orthology.csv
+  filtered_with_og_stats: Final_Filtered_List_with_OG_stats.csv
+  filtered_with_orthology: Final_Filtered_List_with_OG_stats_and_orthology.csv
 
 # =============================================================================
 # Stage 04 - tiering (evidence integration + symbol prediction + figures)
 # =============================================================================
 tiering:
   work_dir: /path/to/your/workspace/tier2
-  master_list: PinkPigeon_Immune_Gene_Master_List.csv
-  annotated_final: PinkPigeon_Immune_Annotated_Final.csv
+  master_list: Immune_Gene_Master_List.csv
+  annotated_final: Immune_Annotated_Final.csv
   unmapped_symbols: Unmapped_Gene_Info_Symbols.txt
-  predict_result: PinkPigeon_Immune_Predict_Result_Final.csv
-  predict_with_og_stats: PinkPigeon_Immune_Predict_Result_Final_with_OG_stats.csv
+  predict_result: Immune_Predict_Result_Final.csv
+  predict_with_og_stats: Immune_Predict_Result_Final_with_OG_stats.csv
   unmapped_og_proteins: Unmapped_OG_ProteinIDs.txt
-  final_table: PinkPigeon_Immune_Predict_Result_Final_with_OG_and_Orthology.csv
+  final_table: Immune_Predict_Result_Final_with_OG_and_Orthology.csv
   figure_dir: figures

@@ -9,10 +9,10 @@ merge them into the symbol-prediction table. Species-agnostic (driven by
 Per gene, a representative OG (Primary_OG) is chosen by: smallest FDR, then
 highest immune_enrichment, then highest ref_total_genes.
 
-Inputs : PinkPigeon_Final_Filtered_List_with_OG_stats.csv,
-         PinkPigeon_Immune_Predict_Result_Final.csv,
+Inputs : Final_Filtered_List_with_OG_stats.csv,
+         Immune_Predict_Result_Final.csv,
          GFF3 (transcript -> gene mapping)
-Outputs: PinkPigeon_Immune_Predict_Result_Final_with_OG_stats.csv,
+Outputs: Immune_Predict_Result_Final_with_OG_stats.csv,
          Unmapped_OG_ProteinIDs.txt
 """
 
@@ -152,12 +152,12 @@ def main():
         return os.path.join(tier_work, name) if tier_work else name
 
     og_stats_file = args.og_stats or owd(orth.get("filtered_with_og_stats",
-                                                 "PinkPigeon_Final_Filtered_List_with_OG_stats.csv"))
+                                                 "Final_Filtered_List_with_OG_stats.csv"))
     final_file = args.final or twd(tier.get("predict_result",
-                                           "PinkPigeon_Immune_Predict_Result_Final.csv"))
+                                           "Immune_Predict_Result_Final.csv"))
     gff_file = args.gff or cfg.get("reference", {}).get("gff3_raw", "annotation.gff3")
     output_file = args.output or twd(tier.get("predict_with_og_stats",
-                                             "PinkPigeon_Immune_Predict_Result_Final_with_OG_stats.csv"))
+                                             "Immune_Predict_Result_Final_with_OG_stats.csv"))
     unmapped_file = args.unmapped or twd(tier.get("unmapped_og_proteins", "Unmapped_OG_ProteinIDs.txt"))
 
     print("Loading files...")

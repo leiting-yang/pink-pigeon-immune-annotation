@@ -27,7 +27,10 @@ manual() { echo; echo ">>> MANUAL / HPC STEP: $*"; echo ">>> Submit it, wait for
 stage_preprocess() {
   banner "Stage 00 - preprocess"
   bash 00_preprocess/extract_proteins.sh -g "<genome.fasta>" -a "<raw.gff3>" -o PinkPigeon.faa
-  bash 00_preprocess/gffid_change.sh -g "<raw.gff3>" -m config/chromosome_id_map.tsv
+  # OPTIONAL: only needed if the genome FASTA and GFF3 use different chromosome
+  # IDs (e.g. Ensembl simple IDs). Skip it if they already match (most NCBI
+  # RefSeq assemblies). The core pipeline uses the raw GFF3 regardless.
+  # bash 00_preprocess/gffid_change.sh -g "<raw.gff3>" -m config/chromosome_id_map.tsv
   echo "(optional QC) bash 00_preprocess/seqid_list.sh -f <genome.fasta> -g <raw.gff3>"
 }
 
