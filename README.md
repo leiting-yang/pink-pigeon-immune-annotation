@@ -57,9 +57,17 @@ environment. Every Python script reads its defaults from this file via
 `--config config/config.yaml`; any value can be overridden with a CLI flag
 (e.g. `--input`, `--output`).
 
-The SLURM scripts keep a small **USER CONFIG** block at the top for HPC-specific
-values (partition, memory, email, module versions). Keep those in sync with the
-config file by hand.
+The three SLURM scripts (`interproscan_run.sh`, `run_kofam.sh`,
+`run_orthofind.sh`) cannot parse YAML, so their editable values (protein FASTA
+name, work dirs, conda/OrthoFinder paths) live in
+[`config/cluster.sh`](config/cluster.sh), which they `source`. Edit that one
+file instead of the scripts. Submit the SLURM jobs from the repo root (they find
+`config/cluster.sh` via `$SLURM_SUBMIT_DIR`), or set `CLUSTER_CONFIG` to its
+absolute path. The only thing left inside the SLURM scripts is the `#SBATCH`
+header (partition, memory, email), which SLURM requires to be literal.
+
+So in total you edit **two** config files - `config/config.yaml` (Python stages)
+and `config/cluster.sh` (SLURM scripts) - and none of the analysis scripts.
 
 ---
 
@@ -173,7 +181,8 @@ immune-annotation-pipeline/
 ├── run_pipeline.sh              driver documenting run order
 ├── pipeline_common.py          shared species/column resolution helpers
 ├── config/
-│   ├── config.yaml              all paths, species and parameters
+│   ├── config.yaml              all paths, species and parameters (Python stages)
+│   ├── cluster.sh               shell-side values for the SLURM scripts
 │   └── chromosome_id_map.tsv    simple ID -> INSDC accession
 ├── envs/environment.yml         conda environment
 ├── 00_preprocess/              chromosome-ID normalization + QC

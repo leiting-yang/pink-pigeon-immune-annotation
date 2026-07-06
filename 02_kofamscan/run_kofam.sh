@@ -23,12 +23,15 @@
 set -e
 set -o pipefail
 
-# ----- USER CONFIG (keep in sync with config/config.yaml) --------------------
-CONDA_SH="/maps/usermodules/shared_software/shared_envmodules/conda/conda-25.1.1/etc/profile.d/conda.sh"
-CONDA_ENV="pigeon_immune"
-WORK_DIR="/path/to/your/workspace"
-INPUT_FASTA="${WORK_DIR}/PinkPigeon.faa"
-CONFIG_FILE="${WORK_DIR}/database/kofam_db/config.yml"
+# ----- Shared cluster config (edit config/cluster.sh, not this script) -------
+CLUSTER_CONFIG="${CLUSTER_CONFIG:-${SLURM_SUBMIT_DIR:-.}/config/cluster.sh}"
+[ -f "$CLUSTER_CONFIG" ] || { echo "ERROR: cluster config not found: $CLUSTER_CONFIG (submit from the repo root or set CLUSTER_CONFIG)" >&2; exit 1; }
+source "$CLUSTER_CONFIG"
+
+# ----- Script-local settings -------------------------------------------------
+WORK_DIR="$KOFAM_WORK_DIR"
+INPUT_FASTA="${WORK_DIR}/${PROTEIN_FASTA}"
+CONFIG_FILE="$KOFAM_DB_CONFIG"
 OUTPUT_FILE="result_kofam_detail.txt"
 # -----------------------------------------------------------------------------
 

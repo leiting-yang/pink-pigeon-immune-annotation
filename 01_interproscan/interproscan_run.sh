@@ -28,8 +28,13 @@
 # =============================================================================
 set -euo pipefail
 
-# ----- USER CONFIG (keep in sync with config/config.yaml) --------------------
-INFA="PinkPigeon.faa"              # target-species protein FASTA (from extract_proteins.sh)
+# ----- Shared cluster config (edit config/cluster.sh, not this script) -------
+CLUSTER_CONFIG="${CLUSTER_CONFIG:-${SLURM_SUBMIT_DIR:-.}/config/cluster.sh}"
+[ -f "$CLUSTER_CONFIG" ] || { echo "ERROR: cluster config not found: $CLUSTER_CONFIG (submit from the repo root or set CLUSTER_CONFIG)" >&2; exit 1; }
+source "$CLUSTER_CONFIG"
+
+# ----- Script-local settings -------------------------------------------------
+INFA="$PROTEIN_FASTA"              # target-species protein FASTA (from extract_proteins.sh)
 NCHUNK=8                            # number of chunks (must match --array 1-N)
 CHUNK_DIR="$PWD/ipr_chunks"
 OUTDIR="$PWD/ipr_out"

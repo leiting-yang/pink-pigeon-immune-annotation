@@ -20,8 +20,11 @@
 # =============================================================================
 set -euo pipefail
 
-# ----- USER CONFIG (keep in sync with config/config.yaml) --------------------
-INPUT_DIR="/path/to/your/workspace/orthofinder/ortho_input"
+# ----- Shared cluster config (edit config/cluster.sh, not this script) -------
+CLUSTER_CONFIG="${CLUSTER_CONFIG:-${SLURM_SUBMIT_DIR:-.}/config/cluster.sh}"
+[ -f "$CLUSTER_CONFIG" ] || { echo "ERROR: cluster config not found: $CLUSTER_CONFIG (submit from the repo root or set CLUSTER_CONFIG)" >&2; exit 1; }
+source "$CLUSTER_CONFIG"
+INPUT_DIR="$ORTHO_INPUT_DIR"
 # -----------------------------------------------------------------------------
 
 module load orthofinder/3.0.1b1
