@@ -3,38 +3,26 @@
 final_filtering_v2.py
 =====================
 "Exist-to-keep" filtering: for every orthogroup that contains at least one
-reference-species immune protein, keep all Pink Pigeon proteins in that group
+reference-species immune protein, keep all target-species proteins in that group
 and attach the reference annotation.
 
+Species-agnostic: reference species, the target species and the per-species
+output columns all come from `species:` in the config.
+
 Inputs : Orthogroups.tsv, master_lookup_table.csv
-Output : PinkPigeon_Final_Filtered_List.csv
+Output : PinkPigeon_Final_Filtered_List.csv (or the target's filtered list)
 """
 
 import argparse
 import csv
 import os
 import re
+import sys
 
 import pandas as pd
 
-COL_MAP = {"Mouse": "Mouse", "Chicken": "Chicken",
-           "ZebraFinch": "ZebraFinch", "PinkPigeon": "PinkPigeon"}
-
-OUTPUT_COLS = [
-    "PinkPigeon_ProteinID", "Original_ID", "Orthogroup", "Total_Score", "Filter_Reason",
-    "Mouse_GeneSymbols", "Mouse_Category1", "Mouse_Subcategory", "Mouse_Description",
-    "Mouse_UniProt_Function", "Mouse_Immune_Source",
-    "Chicken_GeneSymbols", "Chicken_Description", "Chicken_GO_Terms",
-    "ZebraFinch_GeneSymbols", "ZebraFinch_Description", "ZebraFinch_GO_Terms",
-]
-
-
-def load_config(path):
-    if not path:
-        return {}
-    import yaml
-    with open(path) as fh:
-        return yaml.safe_load(fh) or {}
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pipeline_common import load_config, get_species, species_field_map, ref_annotation_columns
 
 
 def clean_protein_id(pid):
@@ -54,20 +42,6 @@ def clean_text_field(text):
     text = text.replace("’", "'").replace("‘", "'")
     text = re.sub(r"\s+", " ", text)
     return text.strip()
-
-
-def aggregate_metadata(id_list, lookup_dict, fields):
-    aggregated = {field: set() for field in fields}
-    for pid in id_list:
-        clean_pid = clean_protein_id(pid)
-        data = lookup_dict.get(clean_pid)
-        if not data:
-            continue
-        for field in fields:
-            val = clean_text_field(data.get(field))
-            if val:
-                aggregated[field].add(val)
-    return {k: "; ".join(sorted(v)) for k, v in aggregated.items()}
 
 
 def split_cell(row, key):
@@ -90,6 +64,9 @@ def parse_args():
 def main():
     args = parse_args()
     cfg = load_config(args.config)
+    sp = get_species(cfg)
+    target = sp["target"]
+    ref_names = sp["ref_names"]
     orth = cfg.get("orthofinder", {})
     work = orth.get("work_dir", "")
 
@@ -100,12 +77,17 @@ def main():
     master_file = args.master or wd(orth.get("master_lookup", "master_lookup_table.csv"))
     output_file = args.output or wd(orth.get("filtered_list", "PinkPigeon_Final_Filtered_List.csv"))
 
+    # Per-species: which master fields to aggregate and into which output column.
+    field_map = species_field_map(sp)               # (species, master_field, out_col)
+    per_species_fields = {name: [] for name in ref_names}
+    for name, field, col in field_map:
+        per_species_fields[name].append((field, col))
+
     print("Loading reference immune-protein lookup...")
     try:
         df_master = pd.read_csv(master_file, encoding="utf-8-sig")
     except UnicodeDecodeError:
         df_master = pd.read_csv(master_file, encoding="utf-8")
-
     df_master["ProteinID_Clean"] = df_master["ProteinID"].apply(clean_protein_id)
     master_dict = df_master.set_index("ProteinID_Clean").to_dict("index")
     immune_set = set(df_master["ProteinID_Clean"])
@@ -113,75 +95,67 @@ def main():
 
     print("Reading Orthogroups.tsv...")
     df_og = pd.read_csv(og_file, sep="\t")
+    missing = [c for c in ref_names + [target] if c not in df_og.columns]
+    if missing:
+        raise SystemExit(
+            f"ERROR: Orthogroups.tsv has no column(s) {missing}. The column names "
+            f"come from the input FASTA basenames; they must match the config "
+            f"species names ({[target] + ref_names}).")
+
+    def aggregate_species(name, id_list):
+        """Aggregate one species' annotation into its output columns."""
+        buckets = {col: set() for (_f, col) in per_species_fields[name]}
+        for pid in id_list:
+            data = master_dict.get(clean_protein_id(pid))
+            if not data:
+                continue
+            for field, col in per_species_fields[name]:
+                val = clean_text_field(data.get(field))
+                if val:
+                    buckets[col].add(val)
+        return {col: "; ".join(sorted(vals)) for col, vals in buckets.items()}
 
     print("Applying exist-to-keep filtering...")
     final_rows = []
     og_count = 0
+    out_cols = [f"{target}_ProteinID", "Original_ID", "Orthogroup",
+                "Total_Score", "Filter_Reason"] + ref_annotation_columns(sp)
 
     for _, row in df_og.iterrows():
         og_id = row["Orthogroup"]
-        mouse_raw = split_cell(row, COL_MAP["Mouse"])
-        chk_raw = split_cell(row, COL_MAP["Chicken"])
-        zf_raw = split_cell(row, COL_MAP["ZebraFinch"])
-
-        found_mouse = [p for p in (clean_protein_id(x) for x in mouse_raw) if p in immune_set]
-        found_chk = [p for p in (clean_protein_id(x) for x in chk_raw) if p in immune_set]
-        found_zf = [p for p in (clean_protein_id(x) for x in zf_raw) if p in immune_set]
-
-        if not (found_mouse or found_chk or found_zf):
+        raw_ids = {name: split_cell(row, name) for name in ref_names}
+        hits = {name: [p for p in (clean_protein_id(x) for x in raw_ids[name]) if p in immune_set]
+                for name in ref_names}
+        if not any(hits[name] for name in ref_names):
             continue
 
         og_count += 1
-        reasons = []
-        if found_mouse:
-            reasons.append("Mouse_Hit")
-        if found_chk:
-            reasons.append("Chicken_Hit")
-        if found_zf:
-            reasons.append("ZebraFinch_Hit")
-        pseudo_score = len(reasons)
+        reasons = [f"{name}_Hit" for name in ref_names if hits[name]]
+        annotation = {}
+        for name in ref_names:
+            annotation.update(aggregate_species(name, raw_ids[name]))
 
-        mouse_info = aggregate_metadata(
-            mouse_raw, master_dict,
-            ["GeneSymbol", "Description", "Category1", "Subcategory",
-             "UniProt_function", "Immune_Source"])
-        chk_info = aggregate_metadata(chk_raw, master_dict, ["GeneSymbol", "Description", "GO_Terms"])
-        zf_info = aggregate_metadata(zf_raw, master_dict, ["GeneSymbol", "Description", "GO_Terms"])
-
-        pp_raw = row.get(COL_MAP["PinkPigeon"])
-        if pd.isna(pp_raw):
+        tgt_raw = row.get(target)
+        if pd.isna(tgt_raw):
             continue
-        pp_genes = [p.strip() for p in str(pp_raw).split(",") if p.strip()]
-
-        for pp_gene in pp_genes:
-            clean_pp_id = pp_gene.replace("transcript_", "", 1) if pp_gene.startswith("transcript_") else pp_gene
-            final_rows.append({
-                "PinkPigeon_ProteinID": clean_pp_id,
-                "Original_ID": pp_gene,
+        for tgt_gene in [p.strip() for p in str(tgt_raw).split(",") if p.strip()]:
+            clean_tgt = tgt_gene.replace("transcript_", "", 1) if tgt_gene.startswith("transcript_") else tgt_gene
+            record = {
+                f"{target}_ProteinID": clean_tgt,
+                "Original_ID": tgt_gene,
                 "Orthogroup": og_id,
-                "Total_Score": pseudo_score,
+                "Total_Score": len(reasons),
                 "Filter_Reason": ", ".join(reasons),
-                "Mouse_GeneSymbols": mouse_info["GeneSymbol"],
-                "Mouse_Category1": mouse_info["Category1"],
-                "Mouse_Subcategory": mouse_info["Subcategory"],
-                "Mouse_Description": mouse_info["Description"],
-                "Mouse_UniProt_Function": mouse_info["UniProt_function"],
-                "Mouse_Immune_Source": mouse_info["Immune_Source"],
-                "Chicken_GeneSymbols": chk_info["GeneSymbol"],
-                "Chicken_Description": chk_info["Description"],
-                "Chicken_GO_Terms": chk_info["GO_Terms"],
-                "ZebraFinch_GeneSymbols": zf_info["GeneSymbol"],
-                "ZebraFinch_Description": zf_info["Description"],
-                "ZebraFinch_GO_Terms": zf_info["GO_Terms"],
-            })
+            }
+            record.update(annotation)
+            final_rows.append(record)
 
-    result_df = pd.DataFrame(final_rows)[OUTPUT_COLS]
+    result_df = pd.DataFrame(final_rows).reindex(columns=out_cols)
     result_df.to_csv(output_file, index=False, encoding="utf-8-sig",
                      quoting=csv.QUOTE_NONNUMERIC)
-
     print("Done.")
     print(f"    immune-related orthogroups: {og_count}")
-    print(f"    Pink Pigeon protein rows:   {len(result_df)}")
+    print(f"    {target} protein rows:      {len(result_df)}")
     print(f"    saved to: {output_file}")
 
 

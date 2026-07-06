@@ -2,35 +2,35 @@
 """
 add_gene_info_3.py
 ==================
-Enrich the master list with functional annotation from the conserved avian
-immune-gene database (gene_info.csv), matched via an "all-in" symbol strategy:
-collect candidate symbols from the PPG native symbol, Chicken, ZebraFinch,
-Mouse and Kofam KO symbols (all upper-cased), and aggregate every hit.
+Add the target-species native gene symbol to the master list, then (optionally)
+enrich it with functional annotation from the conserved immune-gene database
+(gene_info.csv), matched via an "all-in" symbol strategy over the native symbol,
+every reference species' symbols and the Kofam KO symbol.
 
-Inputs : PinkPigeon_Immune_Gene_Master_List.csv, gene_info.csv,
-         Nesoenas_genes_by_name.tsv (PPG native symbols)
+Set `species.gene_info_enrichment: false` in the config to skip the gene_info
+step (e.g. for non-avian work where that database does not apply); the native
+symbol is still added so downstream symbol comparison keeps working.
+
+Inputs : PinkPigeon_Immune_Gene_Master_List.csv, gene_info.csv (optional),
+         Nesoenas_genes_by_name.tsv (target native symbols)
 Outputs: PinkPigeon_Immune_Annotated_Final.csv,
-         Unmapped_Gene_Info_Symbols.txt  (QC: gene_info symbols never matched)
+         Unmapped_Gene_Info_Symbols.txt  (only when enrichment runs)
 """
 
 import argparse
 import csv
 import os
+import sys
 import warnings
 
 import pandas as pd
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pipeline_common import load_config, get_species, symbol_columns
+
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 KEY_COLUMN = "entrezgene_accession"
-
-
-def load_config(path):
-    if not path:
-        return {}
-    import yaml
-    with open(path) as fh:
-        return yaml.safe_load(fh) or {}
 
 
 def standardize_symbol(symbol):
@@ -40,8 +40,8 @@ def standardize_symbol(symbol):
 
 
 def load_ppg_names(filepath):
-    """PPG native TSV: column 0 = Gene Symbol, column 1 = Gene ID -> {id: SYMBOL}."""
-    print(f"Loading PPG native symbols from {filepath}...")
+    """Native TSV: column 0 = Gene Symbol, column 1 = Gene ID -> {id: SYMBOL}."""
+    print(f"Loading native symbols from {filepath}...")
     id_to_symbol = {}
     df = pd.read_csv(filepath, sep="\t", header=None, dtype=str)
     for index, row in df.iterrows():
@@ -53,18 +53,17 @@ def load_ppg_names(filepath):
         symbol = standardize_symbol(raw_symbol)
         if raw_id and symbol:
             id_to_symbol[raw_id] = symbol
-    print(f"    mapped {len(id_to_symbol)} PPG gene IDs to symbols")
+    print(f"    mapped {len(id_to_symbol)} native gene IDs to symbols")
     return id_to_symbol
 
 
-def lookup_function(row, info_dict, target_columns):
+def lookup_function(row, info_dict, target_columns, symbol_sources):
     """Collect candidate symbols from all sources, then aggregate every hit."""
     candidates = []
     ppg_sym = str(row.get("PPG_Native_Symbol", "")).strip()
     if ppg_sym and ppg_sym.lower() != "nan":
         candidates.append(standardize_symbol(ppg_sym))
-    for source in ("Chicken_GeneSymbols", "ZebraFinch_GeneSymbols",
-                   "Mouse_GeneSymbols", "KO_Gene_Symbol"):
+    for source in symbol_sources:
         for s in str(row.get(source, "")).split(";"):
             clean = standardize_symbol(s)
             if clean:
@@ -93,7 +92,7 @@ def parse_args():
     p.add_argument("--config", help="Path to config.yaml")
     p.add_argument("--master", help="PinkPigeon_Immune_Gene_Master_List.csv")
     p.add_argument("--gene-info", help="gene_info.csv")
-    p.add_argument("--ppg-names", help="Nesoenas_genes_by_name.tsv")
+    p.add_argument("--ppg-names", help="target native symbol TSV")
     p.add_argument("--output", help="Annotated output CSV")
     p.add_argument("--unmapped", help="Unmapped symbols TXT")
     return p.parse_args()
@@ -102,6 +101,10 @@ def parse_args():
 def main():
     args = parse_args()
     cfg = load_config(args.config)
+    sp = get_species(cfg)
+    # Symbol sources: every reference species' symbols + the Kofam KO symbol.
+    symbol_sources = symbol_columns(sp) + ["KO_Gene_Symbol"]
+
     tier = cfg.get("tiering", {})
     work = tier.get("work_dir", "")
 
@@ -120,6 +123,13 @@ def main():
 
     ppg_id_map = load_ppg_names(ppg_file)
     df_master["PPG_Native_Symbol"] = df_master["GeneID"].astype(str).str.strip().map(ppg_id_map)
+
+    if not sp["gene_info_enrichment"]:
+        print("gene_info enrichment disabled (species.gene_info_enrichment: false); "
+              "writing table with native symbol only.")
+        df_master.to_csv(output_file, index=False, encoding="utf-8-sig", quoting=csv.QUOTE_NONNUMERIC)
+        print(f"Done. Saved to {output_file}")
+        return
 
     print("Loading gene_info database...")
     try:
@@ -141,32 +151,29 @@ def main():
         all_info_symbols.add(key)
     print(f"Loaded {len(info_dict)} gene_info entries.")
 
-    # Coverage statistics
     native_symbols = set(df_master["PPG_Native_Symbol"].dropna().apply(standardize_symbol))
     overlap = native_symbols & all_info_symbols
     print(f"Native symbols in master: {len(native_symbols)}; overlap with gene_info: {len(overlap)}")
 
     print("Mapping annotations...")
-    mapped = df_master.apply(lambda r: lookup_function(r, info_dict, info_columns), axis=1).tolist()
+    mapped = df_master.apply(
+        lambda r: lookup_function(r, info_dict, info_columns, symbol_sources), axis=1).tolist()
     df_mapped = pd.DataFrame(mapped)
     matched = df_mapped["Matched_Gene_Symbol"].notna().sum()
     print(f"Mapped annotations to {matched} / {len(df_master)} genes.")
 
     df_final = pd.concat([df_master, df_mapped], axis=1)
 
-    # Which gene_info symbols were never used
     used = set()
     for item in df_final["Matched_Gene_Symbol"].dropna():
         for s in str(item).split(";"):
             if s.strip():
                 used.add(s.strip())
-    unmapped_symbols = all_info_symbols - used
     with open(unmapped_file, "w") as fh:
         fh.write("Gene_Symbol\n")
-        for sym in sorted(unmapped_symbols):
+        for sym in sorted(all_info_symbols - used):
             fh.write(f"{sym}\n")
 
-    # Column order: put the new annotation columns right after Tier
     base_cols = list(df_master.columns)
     new_cols = ["Matched_Gene_Symbol"] + info_columns
     base_cols = [c for c in base_cols if c not in new_cols]

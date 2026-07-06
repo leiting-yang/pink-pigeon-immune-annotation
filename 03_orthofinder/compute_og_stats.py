@@ -3,12 +3,13 @@
 compute_og_stats.py
 ===================
 Per-orthogroup immune-enrichment and structural statistics for the candidate
-orthogroups.
+orthogroups. Species-agnostic: reference species and the target species come
+from `species:` in the config.
 
 For each candidate OG it computes, from the reference species only:
   - immune fraction and enrichment vs a genome-wide background
   - one-sided Fisher exact test (hypergeometric, no scipy) + Benjamini-Hochberg FDR
-  - normalized Shannon entropy of immune counts across the three species
+  - normalized Shannon entropy of immune counts across the reference species
   - gene-copy variance / SD and duplication density
 
 Inputs : Orthogroups.tsv, Orthogroups.GeneCount.tsv, Duplications.tsv,
@@ -21,29 +22,19 @@ import argparse
 import csv
 import math
 import os
+import sys
 
 import numpy as np
 import pandas as pd
 
-REFERENCE_SPECIES = ["Mouse", "Chicken", "ZebraFinch"]
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pipeline_common import load_config, get_species
 
 
-def load_config(path):
-    if not path:
-        return {}
-    import yaml
-    with open(path) as fh:
-        return yaml.safe_load(fh) or {}
-
-
-# ------------------------- statistics utilities ------------------------------
 def clean_protein_id(pid):
-    """Remove version suffix, e.g. ENSMUSP00000008830.9 -> ENSMUSP00000008830."""
     if pd.isna(pid):
         return ""
     pid = str(pid).strip()
-    if pid == "":
-        return ""
     return pid.split(".")[0] if "." in pid else pid
 
 
@@ -51,36 +42,31 @@ def split_ids(cell):
     if pd.isna(cell):
         return []
     s = str(cell).strip()
-    if s == "":
-        return []
-    return [x.strip() for x in s.split(",") if x.strip()]
+    return [x.strip() for x in s.split(",") if x.strip()] if s else []
 
 
 def safe_div(a, b):
     return a / b if b not in (0, 0.0) else np.nan
 
 
-def compute_shannon_entropy(counts):
-    """Normalized Shannon entropy H/log(3); NaN when total is 0."""
+def compute_shannon_entropy(counts, n_categories):
+    """Normalized Shannon entropy H/log(n_categories); NaN when total is 0."""
     total = sum(counts)
-    if total == 0:
+    if total == 0 or n_categories < 2:
         return np.nan
     probs = [c / total for c in counts if c > 0]
     H = -sum(p * math.log(p) for p in probs)
-    return H / math.log(3)
+    return H / math.log(n_categories)
 
 
 def fisher_exact_right_tail(a, b, c, d):
-    """One-sided (enrichment) Fisher exact test via the hypergeometric tail."""
     row1, row2 = a + b, c + d
     col1, col2 = a + c, b + d
     n = row1 + row2
-
     if b == 0 or c == 0:
         odds_ratio = np.nan if (a == 0 or d == 0) else np.inf
     else:
         odds_ratio = (a * d) / (b * c)
-
     x_max = min(row1, col1)
 
     def log_comb(n_, k_):
@@ -126,13 +112,19 @@ def parse_args():
     p.add_argument("--master", help="master_lookup_table.csv")
     p.add_argument("--filtered", help="PinkPigeon_Final_Filtered_List.csv")
     p.add_argument("--out-summary", help="OG_stats_summary.tsv")
-    p.add_argument("--out-merged", help="PinkPigeon_Final_Filtered_List_with_OG_stats.csv")
+    p.add_argument("--out-merged", help="..._with_OG_stats.csv")
     return p.parse_args()
 
 
 def main():
     args = parse_args()
     cfg = load_config(args.config)
+    sp = get_species(cfg)
+    reference_species = sp["ref_names"]
+    target = sp["target"]
+    all_species = [target] + reference_species
+    n_ref = len(reference_species)
+
     orth = cfg.get("orthofinder", {})
     work = orth.get("work_dir", "")
 
@@ -170,36 +162,33 @@ def main():
     total_ref_genes_background = 0
     total_immune_genes_background = 0
     for _, row in df_og.iterrows():
-        for sp in REFERENCE_SPECIES:
-            ids_clean = [clean_protein_id(x) for x in split_ids(row.get(sp, ""))]
+        for species in reference_species:
+            ids_clean = [clean_protein_id(x) for x in split_ids(row.get(species, ""))]
             total_ref_genes_background += len(ids_clean)
             total_immune_genes_background += sum(1 for x in ids_clean if x in immune_protein_set)
     background_fraction = safe_div(total_immune_genes_background, total_ref_genes_background)
     print(f"    Background immune fraction: {background_fraction:.6f}")
 
-    # --- Duplication counts per OG ---
     dup_count_df = df_dup.groupby("Orthogroup").size().reset_index(name="dup_count")
 
     # --- Gene-copy counts (candidate OGs only) ---
-    needed = ["Orthogroup", "Chicken", "Mouse", "PinkPigeon", "ZebraFinch", "Total"]
+    needed = ["Orthogroup"] + all_species + ["Total"]
     missing = [c for c in needed if c not in df_gc.columns]
     if missing:
-        raise ValueError(f"Missing columns in GeneCount.tsv: {missing}")
-
+        raise ValueError(f"Missing columns in GeneCount.tsv: {missing} "
+                         f"(expected the config species names)")
     df_gc_sub = df_gc[df_gc["Orthogroup"].astype(str).isin(candidate_ogs)].copy()
-    for col in ("Chicken", "Mouse", "PinkPigeon", "ZebraFinch", "Total"):
+    for col in all_species + ["Total"]:
         df_gc_sub[col] = pd.to_numeric(df_gc_sub[col], errors="coerce").fillna(0).astype(int)
-    df_gc_sub["total_genes_all"] = (
-        df_gc_sub["PinkPigeon"] + df_gc_sub["Mouse"] + df_gc_sub["Chicken"] + df_gc_sub["ZebraFinch"])
+    df_gc_sub["total_genes_all"] = df_gc_sub[all_species].sum(axis=1)
 
     def copy_array(row):
-        return np.array([row["PinkPigeon"], row["Mouse"], row["Chicken"], row["ZebraFinch"]], dtype=float)
+        return np.array([row[s] for s in all_species], dtype=float)
 
     df_gc_sub["copy_variance"] = df_gc_sub.apply(lambda r: float(np.var(copy_array(r))), axis=1)
     df_gc_sub["copy_sd"] = df_gc_sub.apply(lambda r: float(np.std(copy_array(r))), axis=1)
-    df_gc_sub = df_gc_sub.rename(columns={
-        "PinkPigeon": "pink_count", "Mouse": "mouse_count",
-        "Chicken": "chicken_count", "ZebraFinch": "zebra_count"})
+    count_cols = {s: f"{s}_count" for s in all_species}
+    df_gc_sub = df_gc_sub.rename(columns=count_cols)
 
     # --- Per-OG immune enrichment / entropy / Fisher test ---
     print(">>> Computing enrichment and entropy for candidate OGs...")
@@ -208,13 +197,13 @@ def main():
     for _, row in df_og_sub.iterrows():
         og = str(row["Orthogroup"])
         ref_ids, immune_counts = {}, {}
-        for sp in REFERENCE_SPECIES:
-            ids_clean = [clean_protein_id(x) for x in split_ids(row.get(sp, ""))]
-            ref_ids[sp] = ids_clean
-            immune_counts[sp] = sum(1 for x in ids_clean if x in immune_protein_set)
+        for species in reference_species:
+            ids_clean = [clean_protein_id(x) for x in split_ids(row.get(species, ""))]
+            ref_ids[species] = ids_clean
+            immune_counts[species] = sum(1 for x in ids_clean if x in immune_protein_set)
 
-        ref_total_genes = sum(len(ref_ids[sp]) for sp in REFERENCE_SPECIES)
-        immune_genes = sum(immune_counts[sp] for sp in REFERENCE_SPECIES)
+        ref_total_genes = sum(len(ref_ids[s]) for s in reference_species)
+        immune_genes = sum(immune_counts[s] for s in reference_species)
         non_immune_genes = ref_total_genes - immune_genes
 
         immune_fraction = safe_div(immune_genes, ref_total_genes)
@@ -229,10 +218,9 @@ def main():
         else:
             p_value, odds_ratio = fisher_exact_right_tail(a, b, c, d)
 
-        immune_entropy = compute_shannon_entropy(
-            [immune_counts["Mouse"], immune_counts["Chicken"], immune_counts["ZebraFinch"]])
+        entropy = compute_shannon_entropy([immune_counts[s] for s in reference_species], n_ref)
 
-        rows.append({
+        record = {
             "Orthogroup": og,
             "ref_total_genes": ref_total_genes,
             "immune_genes": immune_genes,
@@ -242,43 +230,39 @@ def main():
             "immune_enrichment": immune_enrichment,
             "odds_ratio": odds_ratio,
             "p_value": p_value,
-            "immune_mouse": immune_counts["Mouse"],
-            "immune_chicken": immune_counts["Chicken"],
-            "immune_zebra": immune_counts["ZebraFinch"],
-            "immune_entropy": immune_entropy,
-        })
+            "immune_entropy": entropy,
+        }
+        for species in reference_species:
+            record[f"immune_{species}"] = immune_counts[species]
+        rows.append(record)
 
     df_stats = pd.DataFrame(rows)
     df_stats["FDR"] = benjamini_hochberg(df_stats["p_value"].values)
 
     # --- Merge structural stats ---
     print(">>> Merging duplication and structural stats...")
-    df_summary = df_stats.merge(
-        df_gc_sub[["Orthogroup", "pink_count", "mouse_count", "chicken_count",
-                   "zebra_count", "total_genes_all", "copy_variance", "copy_sd"]],
-        on="Orthogroup", how="left")
+    struct_cols = ["Orthogroup"] + [f"{s}_count" for s in all_species] + \
+                  ["total_genes_all", "copy_variance", "copy_sd"]
+    df_summary = df_stats.merge(df_gc_sub[struct_cols], on="Orthogroup", how="left")
     df_summary = df_summary.merge(dup_count_df, on="Orthogroup", how="left")
     df_summary["dup_count"] = df_summary["dup_count"].fillna(0).astype(int)
     df_summary["dup_density"] = df_summary.apply(
         lambda r: safe_div(r["dup_count"], r["total_genes_all"]), axis=1)
 
-    summary_cols = [
-        "Orthogroup", "ref_total_genes", "immune_genes", "non_immune_genes",
-        "immune_fraction", "background_fraction", "immune_enrichment", "odds_ratio",
-        "p_value", "FDR", "immune_mouse", "immune_chicken", "immune_zebra",
-        "immune_entropy", "pink_count", "mouse_count", "chicken_count", "zebra_count",
-        "total_genes_all", "copy_variance", "copy_sd", "dup_count", "dup_density"]
+    immune_cols = [f"immune_{s}" for s in reference_species]
+    count_out_cols = [f"{s}_count" for s in all_species]
+    summary_cols = (["Orthogroup", "ref_total_genes", "immune_genes", "non_immune_genes",
+                     "immune_fraction", "background_fraction", "immune_enrichment", "odds_ratio",
+                     "p_value", "FDR"] + immune_cols + ["immune_entropy"] + count_out_cols +
+                    ["total_genes_all", "copy_variance", "copy_sd", "dup_count", "dup_density"])
     df_summary = df_summary[summary_cols].sort_values("Orthogroup")
     df_summary.to_csv(out_summary, sep="\t", index=False)
     print(f"    Saved OG summary: {out_summary}")
 
-    # --- Merge back to the filtered Pink Pigeon table ---
     df_merged = df_filtered.merge(df_summary, on="Orthogroup", how="left")
-    df_merged.to_csv(out_merged, index=False, encoding="utf-8-sig",
-                     quoting=csv.QUOTE_NONNUMERIC)
+    df_merged.to_csv(out_merged, index=False, encoding="utf-8-sig", quoting=csv.QUOTE_NONNUMERIC)
     print(f"    Saved merged table: {out_merged}")
-    print(f"=== Done === candidate OGs: {df_summary['Orthogroup'].nunique()}, "
-          f"rows: {len(df_merged)}")
+    print(f"=== Done === candidate OGs: {df_summary['Orthogroup'].nunique()}, rows: {len(df_merged)}")
 
 
 if __name__ == "__main__":

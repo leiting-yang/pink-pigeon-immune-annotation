@@ -3,7 +3,8 @@
 merge_immune_annotations.py
 ===========================
 Merge the three evidence lines (InterProScan, OrthoFinder, KofamScan) at the
-gene level (outer join) and assign a confidence Tier.
+gene level (outer join) and assign a confidence Tier. Species-agnostic: the
+OrthoFinder annotation columns come from `species:` in the config.
 
 Tier 1: all three evidence sources    Tier 2: any two    Tier 3: a single source
 
@@ -15,16 +16,12 @@ Output : PinkPigeon_Immune_Gene_Master_List.csv
 import argparse
 import csv
 import os
+import sys
 
 import pandas as pd
 
-
-def load_config(path):
-    if not path:
-        return {}
-    import yaml
-    with open(path) as fh:
-        return yaml.safe_load(fh) or {}
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pipeline_common import load_config, get_species, ref_annotation_columns
 
 
 def parse_gff_transcript_to_gene(gff_path):
@@ -77,6 +74,8 @@ def parse_args():
 def main():
     args = parse_args()
     cfg = load_config(args.config)
+    sp = get_species(cfg)
+    target_id_col = f"{sp['target']}_ProteinID"
 
     def stage_path(section, key, default):
         node = cfg.get(section, {})
@@ -111,18 +110,13 @@ def main():
     # --- OrthoFinder ---
     print("Processing OrthoFinder...")
     ortho_df = pd.read_csv(ortho_file)
-    ortho_df["Clean_ID"] = ortho_df["PinkPigeon_ProteinID"].astype(str).str.replace("transcript:", "", regex=False).str.replace("transcript_", "", regex=False)
+    ortho_df["Clean_ID"] = ortho_df[target_id_col].astype(str).str.replace("transcript:", "", regex=False).str.replace("transcript_", "", regex=False)
     ortho_df["GeneID"] = ortho_df["Clean_ID"].map(tx2gene)
     unmapped = ortho_df["GeneID"].isna().sum()
     if unmapped:
         print(f"    [WARN] {unmapped} OrthoFinder entries failed to map; dropping them.")
         ortho_df = ortho_df.dropna(subset=["GeneID"])
-    ortho_cols = [
-        "Total_Score", "Filter_Reason",
-        "Mouse_GeneSymbols", "Mouse_Category1", "Mouse_Subcategory",
-        "Mouse_Description", "Mouse_UniProt_Function", "Mouse_Immune_Source",
-        "Chicken_GeneSymbols", "Chicken_Description", "Chicken_GO_Terms",
-        "ZebraFinch_GeneSymbols", "ZebraFinch_Description", "ZebraFinch_GO_Terms"]
+    ortho_cols = ["Total_Score", "Filter_Reason"] + ref_annotation_columns(sp)
     ortho_gene = clean_and_aggregate(ortho_df, "GeneID", ortho_cols)
     ortho_gene["Source_Orthofinder"] = True
 
@@ -166,8 +160,7 @@ def main():
     merged = merged[cols]
 
     os.makedirs(os.path.dirname(output_file) or ".", exist_ok=True)
-    merged.to_csv(output_file, index=False, encoding="utf-8-sig",
-                  quoting=csv.QUOTE_NONNUMERIC)
+    merged.to_csv(output_file, index=False, encoding="utf-8-sig", quoting=csv.QUOTE_NONNUMERIC)
     print(f"Done. Saved {len(merged)} genes to {output_file}")
     print("Tier distribution:")
     print(merged["Tier"].value_counts())

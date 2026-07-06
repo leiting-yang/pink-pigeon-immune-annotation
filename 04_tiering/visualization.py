@@ -3,20 +3,17 @@
 visualization.py
 ================
 Generate the QC / summary figures from the final annotated table.
+Species-agnostic: the functional-category plot uses the curated reference
+species from `species:` in the config, and prediction sources are mapped
+generically.
 
 Input : PinkPigeon_Immune_Predict_Result_Final_with_OG_and_Orthology.csv
-Output: 7 PNG figures (300 dpi) in the figure directory:
-  1 Evidence Venn (OrthoFinder / KofamScan / InterProScan)
-  2 Tier distribution
-  3 Top 10 immune KEGG pathways
-  4 Mouse functional category distribution
-  5 Symbol-comparison pie
-  6 Prediction-source pie
-  7a/7b Ambiguity analysis
+Output: 7 PNG figures (300 dpi) in the figure directory.
 """
 
 import argparse
 import os
+import sys
 from collections import Counter
 import re
 
@@ -27,7 +24,9 @@ import pandas as pd
 import seaborn as sns
 from matplotlib_venn import venn3
 
-# Font styling
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pipeline_common import load_config, get_species
+
 sns.set_theme(style="whitegrid")
 plt.rcParams["font.sans-serif"] = ["Arial", "DejaVu Sans"]
 plt.rcParams["pdf.fonttype"] = 42
@@ -43,14 +42,6 @@ plt.rcParams["legend.fontsize"] = LEGEND_SIZE
 OUTDIR = "."
 
 
-def load_config(path):
-    if not path:
-        return {}
-    import yaml
-    with open(path) as fh:
-        return yaml.safe_load(fh) or {}
-
-
 def save_plot(fig, filename):
     fig.tight_layout()
     out = os.path.join(OUTDIR, filename)
@@ -60,7 +51,6 @@ def save_plot(fig, filename):
 
 
 def plot_venn(df):
-    """Plot 1: intersection of the three evidence sources."""
     ortho_idx, kofam_idx, interpro_idx = set(), set(), set()
     for idx, row in df.iterrows():
         if pd.isna(row["Evidence_Sources"]):
@@ -73,7 +63,6 @@ def plot_venn(df):
                 kofam_idx.add(idx)
             if "interpro" in s_clean:
                 interpro_idx.add(idx)
-
     plt.figure(figsize=(10, 10))
     out = venn3([ortho_idx, kofam_idx, interpro_idx],
                 set_labels=("Orthofinder", "KofamScan", "InterProScan"))
@@ -88,7 +77,6 @@ def plot_venn(df):
 
 
 def plot_tier_distribution(df):
-    """Plot 2: gene count per Tier."""
     if "Tier" not in df.columns:
         print("Column 'Tier' not found.")
         return
@@ -104,13 +92,12 @@ def plot_tier_distribution(df):
 
 
 def plot_immune_pathways(df):
-    """Plot 3: top 10 immune KEGG pathways."""
     pathways = []
     for entry in df["Immune_Pathway"].dropna():
         for p in str(entry).split(";"):
             p = p.strip()
-            p = re.sub(r"\s*\[.*?\]\s*$", "", p)   # drop trailing [..]
-            p = re.sub(r"^\d+\s*", "", p)          # drop leading pathway number
+            p = re.sub(r"\s*\[.*?\]\s*$", "", p)
+            p = re.sub(r"^\d+\s*", "", p)
             if p:
                 pathways.append(p)
     if not pathways:
@@ -129,25 +116,27 @@ def plot_immune_pathways(df):
     save_plot(plt.gcf(), "3_Top10_Immune_Pathways.png")
 
 
-def plot_mouse_category(df):
-    """Plot 4: mouse functional category (single-category genes only)."""
-    valid = df["Mouse_Category1"].dropna()
+def plot_functional_category(df, category_col):
+    """Functional category of the curated reference species (single-category genes)."""
+    if not category_col or category_col not in df.columns:
+        print(f"[Plot 4] no curated category column ({category_col}); skipped.")
+        return
+    valid = df[category_col].dropna()
     multi = valid[valid.str.contains(";")]
     single = valid[~valid.str.contains(";")]
     print(f"[Plot 4] {len(multi)} genes have multiple categories; excluded.")
     cat_counts = single.value_counts()
     plt.figure(figsize=(12, 8))
     ax = sns.barplot(x=cat_counts.values, y=cat_counts.index, palette="coolwarm")
-    plt.title(f"Rodent Functional Category (Single Category Genes: {len(single)})")
+    plt.title(f"Functional Category (Single Category Genes: {len(single)})")
     plt.xlabel("Count")
     plt.ylabel("Category")
     for i, v in enumerate(cat_counts.values):
         ax.text(v + 0.5, i, str(v), va="center", fontsize=TICK_SIZE)
-    save_plot(plt.gcf(), "4_Mouse_Category_Distribution.png")
+    save_plot(plt.gcf(), "4_Functional_Category_Distribution.png")
 
 
 def plot_symbol_comparison(df):
-    """Plot 5: symbol-comparison pie. Adds a Symbol_Group column used by Plot 7."""
     def map_symbol(s):
         if pd.isna(s) or str(s) in ("No_Info", "Not_Predictable", "nan"):
             return "No Prediction"
@@ -174,22 +163,15 @@ def plot_symbol_comparison(df):
 
 
 def plot_predict_sources(df):
-    """Plot 6: prediction-source pie."""
     def map_source(s):
         if pd.isna(s):
             return "Not predictable"
         s = str(s).replace(" (Ambiguous)", "")
-        if "Avian" in s:
-            return "Avian Consensus"
-        if "Chicken" in s:
-            return "Chicken"
-        if "Mouse" in s:
-            return "Mouse"
-        if "Kofam" in s:
+        if "Consensus" in s or "Avian" in s:
+            return "Consensus"
+        if s == "Kofam":
             return "KEGG"
-        if "ZebraFinch" in s:
-            return "Zebra Finch"
-        return s
+        return s  # reference species name as-is
 
     counts = df["Predict_Sources"].apply(map_source).value_counts()
     plt.figure(figsize=(11, 11))
@@ -202,7 +184,6 @@ def plot_predict_sources(df):
 
 
 def plot_ambiguity(df):
-    """Plot 7a/7b: ambiguity of predicted symbols."""
     if "Symbol_Group" not in df.columns:
         plot_symbol_comparison(df)
     predicted = df[df["Symbol_Group"] != "No Prediction"].copy()
@@ -248,6 +229,7 @@ def main():
     global OUTDIR
     args = parse_args()
     cfg = load_config(args.config)
+    sp = get_species(cfg)
     tier = cfg.get("tiering", {})
     work = tier.get("work_dir", "")
 
@@ -259,6 +241,10 @@ def main():
     OUTDIR = args.figure_dir or wd(tier.get("figure_dir", "figures"))
     os.makedirs(OUTDIR, exist_ok=True)
 
+    # Curated reference species (if any) drives the functional-category plot.
+    curated_species = sp["curated"][0] if sp["curated"] else None
+    category_col = f"{curated_species}_Category1" if curated_species else None
+
     print(f"Loading {input_file} ...")
     df = pd.read_csv(input_file)
 
@@ -266,7 +252,7 @@ def main():
     plot_venn(df)
     plot_tier_distribution(df)
     plot_immune_pathways(df)
-    plot_mouse_category(df)
+    plot_functional_category(df, category_col)
     df = plot_symbol_comparison(df)
     plot_predict_sources(df)
     plot_ambiguity(df)

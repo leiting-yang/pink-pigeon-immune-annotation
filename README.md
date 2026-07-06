@@ -20,12 +20,10 @@ symbols, orthology relationships, and orthogroup immune-enrichment statistics.
 > The chromosome-ID map in `config/chromosome_id_map.tsv` is specific to this
 > assembly.
 >
-> It can be adapted to **other species or a new genome annotation** with minor
-> changes: point the paths in `config/config.yaml` at the new genome FASTA,
-> GFF3 and protein FASTA, update `config/chromosome_id_map.tsv` for the new
-> assembly (or skip stage 00 if the IDs already match), and adjust the reference
-> species set in `species:` together with the corresponding BioMart / curated
-> inputs. The analysis logic itself is species-agnostic.
+> The analysis logic is **species-agnostic**: the target and reference species,
+> their BioMart inputs and the symbol-prediction rules are all driven by the
+> `species:` block in `config/config.yaml`. See
+> [section 7 (Reusing for another species)](#7-reusing-the-pipeline-for-another-species).
 
 ---
 
@@ -53,7 +51,8 @@ not installed by the environment above:
 ## 2. Configuration
 
 All data paths live in [`config/config.yaml`](config/config.yaml). Edit the
-absolute paths under `reference:` and `external_data:` once for your
+absolute paths under `reference:` and `external_data:`, and the `species:` block
+(target + reference species with their BioMart files), once for your
 environment. Every Python script reads its defaults from this file via
 `--config config/config.yaml`; any value can be overridden with a CLI flag
 (e.g. `--input`, `--output`).
@@ -69,18 +68,20 @@ config file by hand.
 These files are **not** produced by the pipeline and must be obtained before
 running (paths set under `external_data:` in the config):
 
-| File | Source |
-|------|--------|
-| `go_terms_immune_system_process.txt` | AmiGO: all children of GO:0002376 (immune system process) plus "immune" keyword hits in MF/CC, comma-separated |
-| `processed_chicken_biomart.csv` | Ensembl BioMart (Chicken immune genes from the Avian Immune Database) |
-| `processed_zebrafinch_biomart.csv` | Ensembl BioMart (Zebra Finch immune genes) |
-| `processed_mouse_biomart.csv` | Ensembl BioMart (Mouse gene IDs from the curated list) |
-| `ImmuneGeneFunction_20240520.csv` | Published curated mouse immune-gene list (Category1, Subcategory, UniProt_function) |
-| `gene_info.csv` | Conserved avian immune-gene functional database (unpublished) |
-| `Nesoenas_genes_by_name.tsv` | Pink Pigeon native gene-symbol table from the genome annotation (Symbol `<TAB>` Gene ID) |
+| File | Configured under | Source |
+|------|------------------|--------|
+| `go_terms_immune_system_process.txt` | `external_data` | AmiGO: all children of GO:0002376 plus "immune" MF/CC hits, comma-separated |
+| `processed_mouse_biomart.csv` | `species.reference[Mouse].biomart` | Ensembl BioMart (Mouse gene IDs from the curated list) |
+| `processed_chicken_biomart.csv` | `species.reference[Chicken].biomart` | Ensembl BioMart (Chicken immune genes) |
+| `processed_zebrafinch_biomart.csv` | `species.reference[ZebraFinch].biomart` | Ensembl BioMart (Zebra Finch immune genes) |
+| `ImmuneGeneFunction_20240520.csv` | `species.reference[Mouse].curated_list` | Published curated mouse immune-gene list (Category1, Subcategory, UniProt_function) |
+| `gene_info.csv` | `external_data` | Conserved avian immune-gene functional database (unpublished; optional, see `gene_info_enrichment`) |
+| `Nesoenas_genes_by_name.tsv` | `external_data` | Target-species native gene-symbol table (Symbol `<TAB>` Gene ID) |
 
-The reference genome FASTA, GFF3 and the two protein FASTAs come from the genome
-annotation project (see `reference:` in the config).
+Each reference species listed under `species.reference` needs a BioMart CSV; a
+curated functional list is optional per species. The reference genome FASTA,
+GFF3 and the target/reference protein FASTAs come from the genome annotation
+project (see `reference:` in the config).
 
 ---
 
@@ -167,8 +168,9 @@ These are **not** automated and need human action or review:
 immune-annotation-pipeline/
 ├── README.md
 ├── run_pipeline.sh              driver documenting run order
+├── pipeline_common.py          shared species/column resolution helpers
 ├── config/
-│   ├── config.yaml              all paths and parameters
+│   ├── config.yaml              all paths, species and parameters
 │   └── chromosome_id_map.tsv    simple ID -> INSDC accession
 ├── envs/environment.yml         conda environment
 ├── 00_preprocess/              chromosome-ID normalization + QC
@@ -181,3 +183,41 @@ immune-annotation-pipeline/
 
 See [`docs/PIPELINE_OVERVIEW.md`](docs/PIPELINE_OVERVIEW.md) for a per-script
 description of inputs, outputs and logic.
+
+---
+
+## 7. Reusing the pipeline for another species
+
+The pipeline is species-agnostic. All species-specific behaviour is driven by
+the `species:` block in `config/config.yaml`, so no code needs editing.
+
+To adapt it:
+
+1. **Set the target and reference species** in `species:`:
+   ```yaml
+   species:
+     target: MyBird
+     reference:
+       - name: Chicken
+         biomart: chicken_biomart.csv
+         curated_list: chicken_curated.csv   # optional
+       - name: ZebraFinch
+         biomart: zebrafinch_biomart.csv
+   ```
+2. **Name the OrthoFinder input FASTAs to match** these names exactly. The
+   species columns in `Orthogroups.tsv` come from the FASTA basenames, so the
+   target FASTA must be `MyBird.fa`, the references `Chicken.fa`,
+   `ZebraFinch.fa`, etc. This is the one hard requirement.
+3. **Provide a BioMart CSV** for each reference species (same column layout as
+   the Pink Pigeon inputs). A `curated_list` is optional per species.
+4. **Tune symbol prediction** (optional): `consensus_group` is the set of
+   species whose intersection is treated as high-confidence (use `[]` to
+   disable); `prediction_priority` is the single-species fallback order.
+5. **Point `reference:` paths** at the new genome FASTA, GFF3 and protein FASTAs,
+   and update `config/chromosome_id_map.tsv` (or skip stage 00 if the annotation
+   already uses standard accessions).
+6. **Non-avian work:** set `gene_info_enrichment: false` to skip the
+   avian-oriented `gene_info.csv` enrichment.
+
+Everything downstream (columns, orthology summaries, figures) follows the
+configured species automatically.

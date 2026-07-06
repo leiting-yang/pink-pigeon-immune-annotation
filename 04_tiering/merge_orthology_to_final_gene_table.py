@@ -3,13 +3,14 @@
 merge_orthology_to_final_gene_table.py
 ======================================
 Aggregate the transcript-level orthology analysis to the gene level, merge it
-into the final immune-gene prediction table, and add the Orth_Sub_Tier column.
+into the final prediction table, and add Orth_Sub_Tier. Species-agnostic
+(driven by `species:` in the config).
 
 Per gene (multiple transcripts) the best value is kept per species:
   - Orth_{Species}_type: highest priority type (1:1 > 1:N > N:1 > N:M)
   - counts: maximum across transcripts
 Orth_Sub_Tier = number of distinct species providing any high-weight evidence
-(1:1 immune, or 1:N all-immune); union, deduplicated, range 0-3.
+(1:1 immune, or 1:N all-immune); union, deduplicated.
 
 Inputs : PinkPigeon_Final_Filtered_List_with_OG_stats_and_orthology.csv,
          PinkPigeon_Immune_Predict_Result_Final_with_OG_stats.csv,
@@ -20,20 +21,15 @@ Output : PinkPigeon_Immune_Predict_Result_Final_with_OG_and_Orthology.csv
 import argparse
 import csv
 import os
+import sys
 
 import numpy as np
 import pandas as pd
 
-SPECIES_LIST = ["Mouse", "Chicken", "ZebraFinch"]
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pipeline_common import load_config, get_species
+
 ORTH_TYPE_PRIORITY = {"1:1": 0, "1:N": 1, "N:1": 2, "N:M": 3}
-
-
-def load_config(path):
-    if not path:
-        return {}
-    import yaml
-    with open(path) as fh:
-        return yaml.safe_load(fh) or {}
 
 
 def parse_gff_transcript_to_gene(gff_path):
@@ -70,61 +66,62 @@ def orth_type_rank(t):
     return ORTH_TYPE_PRIORITY.get(str(t), 99)
 
 
-def aggregate_orthology_to_gene(group):
-    """Collapse a gene's transcripts into one gene-level orthology summary."""
-    out = {"Gene_Transcript_Count": len(group)}
+def make_aggregate(species_list):
+    def aggregate_orthology_to_gene(group):
+        out = {"Gene_Transcript_Count": len(group)}
 
-    if len(group) == 1:
-        row = group.iloc[0]
-        for sp in SPECIES_LIST:
+        if len(group) == 1:
+            row = group.iloc[0]
+            for sp in species_list:
+                prefix = f"Orth_{sp}"
+                for suffix in ("type", "ref_total", "ref_immune", "all_immune", "rows"):
+                    out[f"{prefix}_{suffix}"] = row.get(f"{prefix}_{suffix}", np.nan)
+            out["Orth_1to1_immune_count"] = row.get("Orth_1to1_immune_count", 0)
+            out["Orth_1to1_immune_species"] = row.get("Orth_1to1_immune_species", np.nan)
+            out["Orth_1toN_allimmune_count"] = row.get("Orth_1toN_allimmune_count", 0)
+            out["Orth_1toN_allimmune_species"] = row.get("Orth_1toN_allimmune_species", np.nan)
+            return pd.Series(out)
+
+        for sp in species_list:
             prefix = f"Orth_{sp}"
-            for suffix in ("type", "ref_total", "ref_immune", "all_immune", "rows"):
-                out[f"{prefix}_{suffix}"] = row.get(f"{prefix}_{suffix}", np.nan)
-        out["Orth_1to1_immune_count"] = row.get("Orth_1to1_immune_count", 0)
-        out["Orth_1to1_immune_species"] = row.get("Orth_1to1_immune_species", np.nan)
-        out["Orth_1toN_allimmune_count"] = row.get("Orth_1toN_allimmune_count", 0)
-        out["Orth_1toN_allimmune_species"] = row.get("Orth_1toN_allimmune_species", np.nan)
+            type_col = f"{prefix}_type"
+            rows_col = f"{prefix}_rows"
+            valid = group[group[type_col].notna()].copy()
+            if len(valid) == 0:
+                out[f"{prefix}_type"] = np.nan
+                out[f"{prefix}_ref_total"] = np.nan
+                out[f"{prefix}_ref_immune"] = np.nan
+                out[f"{prefix}_all_immune"] = np.nan
+                out[f"{prefix}_rows"] = 0
+            else:
+                valid["_type_rank"] = valid[type_col].apply(orth_type_rank)
+                valid[f"{prefix}_ref_immune"] = pd.to_numeric(valid[f"{prefix}_ref_immune"], errors="coerce")
+                valid = valid.sort_values(by=["_type_rank", f"{prefix}_ref_immune"],
+                                          ascending=[True, False])
+                best = valid.iloc[0]
+                out[f"{prefix}_type"] = best[type_col]
+                out[f"{prefix}_ref_total"] = best.get(f"{prefix}_ref_total", np.nan)
+                out[f"{prefix}_ref_immune"] = best.get(f"{prefix}_ref_immune", np.nan)
+                out[f"{prefix}_all_immune"] = best.get(f"{prefix}_all_immune", np.nan)
+                out[f"{prefix}_rows"] = pd.to_numeric(group[rows_col], errors="coerce").max()
+
+        count_1to1 = pd.to_numeric(group["Orth_1to1_immune_count"], errors="coerce")
+        count_1toN = pd.to_numeric(group["Orth_1toN_allimmune_count"], errors="coerce")
+        max_1to1_idx = count_1to1.idxmax() if count_1to1.notna().any() else None
+        max_1toN_idx = count_1toN.idxmax() if count_1toN.notna().any() else None
+
+        out["Orth_1to1_immune_count"] = int(count_1to1.max()) if count_1to1.notna().any() else 0
+        out["Orth_1to1_immune_species"] = (group.loc[max_1to1_idx, "Orth_1to1_immune_species"]
+                                           if max_1to1_idx is not None else np.nan)
+        out["Orth_1toN_allimmune_count"] = int(count_1toN.max()) if count_1toN.notna().any() else 0
+        out["Orth_1toN_allimmune_species"] = (group.loc[max_1toN_idx, "Orth_1toN_allimmune_species"]
+                                             if max_1toN_idx is not None else np.nan)
         return pd.Series(out)
-
-    for sp in SPECIES_LIST:
-        prefix = f"Orth_{sp}"
-        type_col = f"{prefix}_type"
-        rows_col = f"{prefix}_rows"
-        valid = group[group[type_col].notna()].copy()
-        if len(valid) == 0:
-            out[f"{prefix}_type"] = np.nan
-            out[f"{prefix}_ref_total"] = np.nan
-            out[f"{prefix}_ref_immune"] = np.nan
-            out[f"{prefix}_all_immune"] = np.nan
-            out[f"{prefix}_rows"] = 0
-        else:
-            valid["_type_rank"] = valid[type_col].apply(orth_type_rank)
-            valid[f"{prefix}_ref_immune"] = pd.to_numeric(valid[f"{prefix}_ref_immune"], errors="coerce")
-            valid = valid.sort_values(by=["_type_rank", f"{prefix}_ref_immune"],
-                                      ascending=[True, False])
-            best = valid.iloc[0]
-            out[f"{prefix}_type"] = best[type_col]
-            out[f"{prefix}_ref_total"] = best.get(f"{prefix}_ref_total", np.nan)
-            out[f"{prefix}_ref_immune"] = best.get(f"{prefix}_ref_immune", np.nan)
-            out[f"{prefix}_all_immune"] = best.get(f"{prefix}_all_immune", np.nan)
-            out[f"{prefix}_rows"] = pd.to_numeric(group[rows_col], errors="coerce").max()
-
-    count_1to1 = pd.to_numeric(group["Orth_1to1_immune_count"], errors="coerce")
-    count_1toN = pd.to_numeric(group["Orth_1toN_allimmune_count"], errors="coerce")
-    max_1to1_idx = count_1to1.idxmax() if count_1to1.notna().any() else None
-    max_1toN_idx = count_1toN.idxmax() if count_1toN.notna().any() else None
-
-    out["Orth_1to1_immune_count"] = int(count_1to1.max()) if count_1to1.notna().any() else 0
-    out["Orth_1to1_immune_species"] = (group.loc[max_1to1_idx, "Orth_1to1_immune_species"]
-                                       if max_1to1_idx is not None else np.nan)
-    out["Orth_1toN_allimmune_count"] = int(count_1toN.max()) if count_1toN.notna().any() else 0
-    out["Orth_1toN_allimmune_species"] = (group.loc[max_1toN_idx, "Orth_1toN_allimmune_species"]
-                                         if max_1toN_idx is not None else np.nan)
-    return pd.Series(out)
+    return aggregate_orthology_to_gene
 
 
 def compute_sub_tier(row):
-    """Distinct species providing any high-weight orthology evidence (0-3)."""
+    """Distinct species providing any high-weight orthology evidence."""
     species_set = set()
     for col in ("Orth_1to1_immune_species", "Orth_1toN_allimmune_species"):
         val = row.get(col, None)
@@ -160,6 +157,10 @@ def parse_args():
 def main():
     args = parse_args()
     cfg = load_config(args.config)
+    sp = get_species(cfg)
+    species_list = sp["ref_names"]
+    target_id_col = f"{sp['target']}_ProteinID"
+
     orth = cfg.get("orthofinder", {})
     tier = cfg.get("tiering", {})
     orth_work = orth.get("work_dir", "")
@@ -185,14 +186,14 @@ def main():
     print(f"    orthology transcript rows: {len(df_orth)}; final gene rows: {len(df_final)}")
 
     tx2gene = parse_gff_transcript_to_gene(gff_file)
-    df_orth["Clean_ID"] = df_orth["PinkPigeon_ProteinID"].apply(clean_pp_id)
+    df_orth["Clean_ID"] = df_orth[target_id_col].apply(clean_pp_id)
     df_orth["GeneID"] = df_orth["Clean_ID"].map(tx2gene)
     mapped = df_orth.dropna(subset=["GeneID"]).copy()
     print(f"    mapped: {len(mapped)} / {len(df_orth)}")
 
     print("Aggregating orthology to gene level...")
-    gene_orth = (mapped.groupby("GeneID", group_keys=False)
-                 .apply(aggregate_orthology_to_gene).reset_index())
+    aggregate = make_aggregate(species_list)
+    gene_orth = mapped.groupby("GeneID", group_keys=False).apply(aggregate).reset_index()
     if "GeneID" not in gene_orth.columns and gene_orth.index.name == "GeneID":
         gene_orth = gene_orth.reset_index()
 
@@ -202,8 +203,8 @@ def main():
 
     print("Merging into final gene table...")
     orth_merge_cols = ["GeneID", "Gene_Transcript_Count"]
-    for sp in SPECIES_LIST:
-        prefix = f"Orth_{sp}"
+    for sp_name in species_list:
+        prefix = f"Orth_{sp_name}"
         orth_merge_cols += [f"{prefix}_type", f"{prefix}_ref_total", f"{prefix}_ref_immune",
                             f"{prefix}_all_immune", f"{prefix}_rows"]
     orth_merge_cols += ["Orth_1to1_immune_count", "Orth_1to1_immune_species",
@@ -211,7 +212,6 @@ def main():
 
     merged = df_final.merge(gene_orth[orth_merge_cols], on="GeneID", how="left")
 
-    # Genes with no OrthoFinder evidence get Orth_Sub_Tier = NaN
     if "Evidence_Sources" in merged.columns:
         no_ortho = ~merged["Evidence_Sources"].str.contains("Orthofinder", na=True)
         merged.loc[no_ortho, "Orth_Sub_Tier"] = np.nan

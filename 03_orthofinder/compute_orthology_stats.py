@@ -2,12 +2,12 @@
 """
 compute_orthology_stats.py
 ==========================
-From the OrthoFinder Orthologues output, classify each Pink Pigeon transcript's
-orthology relationship (1:1, 1:N, N:1, N:M) to each reference species and
-combine it with reference immune-gene status, then merge onto the OG-stats table.
+From the OrthoFinder Orthologues output, classify each target-species
+transcript's orthology relationship (1:1, 1:N, N:1, N:M) to each reference
+species and combine it with reference immune-gene status, then merge onto the
+OG-stats table. Species-agnostic (driven by `species:` in the config).
 
-Inputs : PinkPigeon__v__{Mouse,Chicken,ZebraFinch}.tsv (Orthologues),
-         master_lookup_table.csv,
+Inputs : {target}__v__{species}.tsv (Orthologues), master_lookup_table.csv,
          PinkPigeon_Final_Filtered_List_with_OG_stats.csv
 Output : PinkPigeon_Final_Filtered_List_with_OG_stats_and_orthology.csv
 """
@@ -15,24 +15,18 @@ Output : PinkPigeon_Final_Filtered_List_with_OG_stats_and_orthology.csv
 import argparse
 import csv
 import os
+import sys
 
 import numpy as np
 import pandas as pd
 
-REFERENCE_SPECIES = ["Mouse", "Chicken", "ZebraFinch"]
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pipeline_common import load_config, get_species
+
 ORTH_TYPE_PRIORITY = {"1:1": 0, "1:N": 1, "N:1": 2, "N:M": 3}
 
 
-def load_config(path):
-    if not path:
-        return {}
-    import yaml
-    with open(path) as fh:
-        return yaml.safe_load(fh) or {}
-
-
 def clean_protein_id(pid):
-    """Remove version suffix, e.g. ENSMUSP00000008830.9 -> ENSMUSP00000008830."""
     if pd.isna(pid):
         return ""
     pid = str(pid).strip()
@@ -40,7 +34,6 @@ def clean_protein_id(pid):
 
 
 def clean_pp_id(pid):
-    """Strip transcript_/transcript:/mRNA: prefixes from a Pink Pigeon ID."""
     if pd.isna(pid):
         return ""
     return str(pid).strip().replace("transcript:", "").replace("mRNA:", "").replace("transcript_", "")
@@ -64,7 +57,6 @@ def classify_orthology(pp_count, ref_count):
 
 
 def pick_best_row(rows):
-    """Best record per transcript-species: type priority, then immune fraction, then immune count."""
     def sort_key(r):
         priority = ORTH_TYPE_PRIORITY.get(r["orth_type"], 99)
         immune_frac = r["ref_immune"] / r["ref_total"] if r["ref_total"] > 0 else 0
@@ -76,9 +68,9 @@ def parse_args():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", help="Path to config.yaml")
-    p.add_argument("--orthologues-dir", help="Directory holding PinkPigeon__v__*.tsv")
+    p.add_argument("--orthologues-dir", help="Directory holding {target}__v__*.tsv")
     p.add_argument("--master", help="master_lookup_table.csv")
-    p.add_argument("--filtered", help="PinkPigeon_Final_Filtered_List_with_OG_stats.csv")
+    p.add_argument("--filtered", help="..._with_OG_stats.csv")
     p.add_argument("--output", help="Output CSV with orthology columns")
     return p.parse_args()
 
@@ -86,6 +78,11 @@ def parse_args():
 def main():
     args = parse_args()
     cfg = load_config(args.config)
+    sp = get_species(cfg)
+    reference_species = sp["ref_names"]
+    target = sp["target"]
+    target_id_col = f"{target}_ProteinID"
+
     orth = cfg.get("orthofinder", {})
     work = orth.get("work_dir", "")
 
@@ -101,37 +98,34 @@ def main():
                                            "PinkPigeon_Final_Filtered_List_with_OG_stats_and_orthology.csv"))
 
     orthologues_files = {
-        sp: os.path.join(orthologues_dir, f"PinkPigeon__v__{sp}.tsv")
-        for sp in REFERENCE_SPECIES
+        species: os.path.join(orthologues_dir, f"{target}__v__{species}.tsv")
+        for species in reference_species
     }
 
-    # 1. Immune protein set per species
     print(">>> Loading reference immune-protein list...")
     df_master = pd.read_csv(master_csv, encoding="utf-8-sig")
     df_master["ProteinID_Clean"] = df_master["ProteinID"].apply(clean_protein_id)
     immune_set = set(df_master["ProteinID_Clean"].dropna().astype(str))
     print(f"    immune proteins: {len(immune_set)}")
 
-    # 2. Candidate transcripts
-    print(">>> Loading candidate Pink Pigeon transcript list...")
+    print(">>> Loading candidate transcript list...")
     df_filtered = pd.read_csv(filtered_csv, encoding="utf-8-sig")
-    candidate_pp_ids = set(df_filtered["PinkPigeon_ProteinID"].dropna().astype(str))
+    candidate_pp_ids = set(df_filtered[target_id_col].dropna().astype(str))
     print(f"    candidate transcripts: {len(candidate_pp_ids)}")
 
-    # 3. Parse Orthologues files
     all_records = {}
     for species, filepath in orthologues_files.items():
         print(f">>> Parsing Orthologues: {species} ({filepath})")
         df_orth = pd.read_csv(filepath, sep="\t", dtype=str)
-        if "PinkPigeon" not in df_orth.columns or species not in df_orth.columns:
-            print(f"    [ERROR] expected columns Orthogroup, PinkPigeon, {species}; "
+        if target not in df_orth.columns or species not in df_orth.columns:
+            print(f"    [ERROR] expected columns Orthogroup, {target}, {species}; "
                   f"got {list(df_orth.columns)}")
             continue
 
         matched = skipped = 0
         for _, row in df_orth.iterrows():
             og = str(row.get("Orthogroup", ""))
-            pp_clean = [clean_pp_id(x) for x in split_ids(row["PinkPigeon"])]
+            pp_clean = [clean_pp_id(x) for x in split_ids(row[target])]
             ref_clean = [clean_protein_id(x) for x in split_ids(row[species])]
             pp_count, ref_count = len(pp_clean), len(ref_clean)
             if pp_count == 0 or ref_count == 0:
@@ -157,16 +151,15 @@ def main():
                 })
         print(f"    skipped empty rows: {skipped}; matched candidate records: {matched}")
 
-    # 4. Summarize per transcript x species (pick the best row)
     print(">>> Summarizing orthology to transcript level...")
     summary_rows = []
     for pp_id in candidate_pp_ids:
         rec = all_records.get(pp_id, {})
-        row_out = {"PinkPigeon_ProteinID": pp_id}
+        row_out = {target_id_col: pp_id}
         oneto1_immune_species = []
         onetoN_allimmune_species = []
 
-        for species in REFERENCE_SPECIES:
+        for species in reference_species:
             prefix = f"Orth_{species}"
             sp_rows = rec.get(species, [])
             if not sp_rows:
@@ -196,10 +189,8 @@ def main():
     df_summary = pd.DataFrame(summary_rows)
     print(f"    summary rows: {len(df_summary)}")
 
-    # 5. Merge onto filtered list and save
-    df_merged = df_filtered.merge(df_summary, on="PinkPigeon_ProteinID", how="left")
-    df_merged.to_csv(output_csv, index=False, encoding="utf-8-sig",
-                     quoting=csv.QUOTE_NONNUMERIC)
+    df_merged = df_filtered.merge(df_summary, on=target_id_col, how="left")
+    df_merged.to_csv(output_csv, index=False, encoding="utf-8-sig", quoting=csv.QUOTE_NONNUMERIC)
     print(f">>> Saved: {output_csv}  ({len(df_merged)} rows)")
 
 

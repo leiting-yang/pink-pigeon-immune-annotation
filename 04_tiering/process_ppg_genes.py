@@ -2,18 +2,18 @@
 """
 process_ppg_genes.py
 ====================
-Predict a Pink Pigeon gene symbol from the reference symbols and systematically
-compare it against the native symbol produced by the genome annotation.
+Predict a target-species gene symbol from the reference symbols and
+systematically compare it against the native symbol from the genome annotation.
+Species-agnostic: the reference symbol sources, the consensus group and the
+fallback priority all come from `species:` in the config.
 
-Prediction priority: avian consensus (Chicken n ZebraFinch) > Chicken >
-ZebraFinch > Mouse > Kofam. Comparison categories: Match, Alternative_Match,
-Group_Match, Broad_Match, Paralog_Likely, Mismatch, Novel_Annotation,
-Not_Predictable, No_Info.
+Prediction order: consensus (intersection of `consensus_group`) > each species
+in `prediction_priority` > Kofam KO. Comparison categories: Match,
+Alternative_Match, Group_Match, Broad_Match, Paralog_Likely, Mismatch,
+Novel_Annotation, Not_Predictable, No_Info.
 
 Input : PinkPigeon_Immune_Annotated_Final.csv
 Output: PinkPigeon_Immune_Predict_Result_Final.csv
-        (adds All_Predict_Symbols, PPG_Predict_Symbol, Predict_Sources,
-         Ambiguity_Flag, Symbol_Comparison)
 """
 
 import argparse
@@ -21,16 +21,12 @@ import csv
 import difflib
 import os
 import re
+import sys
 
 import pandas as pd
 
-
-def load_config(path):
-    if not path:
-        return {}
-    import yaml
-    with open(path) as fh:
-        return yaml.safe_load(fh) or {}
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pipeline_common import load_config, get_species, symbol_columns
 
 
 def expand_kegg_symbol(symbol):
@@ -53,7 +49,6 @@ def expand_kegg_symbol(symbol):
 
 
 def clean_split_genes(gene_str):
-    """Split a multi-symbol string into a clean list."""
     if pd.isna(gene_str) or str(gene_str).strip() == "":
         return []
     cleaned = []
@@ -64,66 +59,73 @@ def clean_split_genes(gene_str):
     return cleaned
 
 
-def get_all_source_symbols(row):
+def get_all_source_symbols(row, symbol_sources):
     """Union of all reference symbols for a gene (original case), '/'-joined."""
     all_symbols = set()
-    for source in ("Chicken_GeneSymbols", "ZebraFinch_GeneSymbols",
-                   "Mouse_GeneSymbols", "KO_Gene_Symbol"):
-        for gene in clean_split_genes(row[source]):
+    for source in symbol_sources:
+        for gene in clean_split_genes(row.get(source)):
             all_symbols.add(gene)
     return "/".join(sorted(all_symbols)) if all_symbols else None
 
 
-def get_prediction(row):
-    """Predict a symbol with the documented source priority."""
-    s_ck = clean_split_genes(row["Chicken_GeneSymbols"])
-    s_zf = clean_split_genes(row["ZebraFinch_GeneSymbols"])
-    s_mm = clean_split_genes(row["Mouse_GeneSymbols"])
-    s_ko = clean_split_genes(row["KO_Gene_Symbol"])
+def make_get_prediction(sp):
+    """Build a get_prediction(row) closure from the species config."""
+    ref_names = sp["ref_names"]
+    consensus = [s for s in sp["consensus_group"] if s in ref_names]
+    priority = [s for s in sp["prediction_priority"] if s in ref_names]
+    # References that validate an ambiguous consensus-species pick: everything
+    # not in the consensus group, plus the Kofam KO symbols.
+    non_consensus = [s for s in ref_names if s not in consensus]
 
-    set_ck = {x.upper() for x in s_ck}
-    set_zf = {x.upper() for x in s_zf}
-    set_mm = {x.upper() for x in s_mm}
-    set_ko = {x.upper() for x in s_ko}
-    validation_pool = set_mm | set_ko
+    def get_prediction(row):
+        lists = {s: clean_split_genes(row.get(f"{s}_GeneSymbols")) for s in ref_names}
+        sets = {s: {x.upper() for x in lists[s]} for s in ref_names}
+        ko_list = clean_split_genes(row.get("KO_Gene_Symbol"))
+        set_ko = {x.upper() for x in ko_list}
 
-    predict_list = []
-    source = ""
-    avian_intersect = set_ck & set_zf
+        validation_pool = set_ko.union(*[sets[s] for s in non_consensus]) if non_consensus else set_ko
 
-    if avian_intersect:
-        predict_list = [g for g in s_ck if g.upper() in avian_intersect]
+        predict_list, source = [], ""
+
+        # 1. Consensus: intersection of the consensus-group species
+        if len(consensus) >= 2:
+            inter = set.intersection(*[sets[s] for s in consensus])
+            if inter:
+                for cs in consensus:
+                    predict_list = [g for g in lists[cs] if g.upper() in inter]
+                    if predict_list:
+                        break
+                source = "Consensus"
+
+        # 2. Single-species fallback in priority order
         if not predict_list:
-            predict_list = [g for g in s_zf if g.upper() in avian_intersect]
-        source = "Avian (Consensus)"
-    elif s_ck:
-        if len(s_ck) == 1:
-            predict_list, source = s_ck, "Chicken"
-        else:
-            valid = set_ck & validation_pool
-            predict_list = [g for g in s_ck if g.upper() in valid] if valid else s_ck
-            source = "Chicken"
-    elif s_zf:
-        if len(s_zf) == 1:
-            predict_list, source = s_zf, "ZebraFinch"
-        else:
-            valid = set_zf & validation_pool
-            predict_list = [g for g in s_zf if g.upper() in valid] if valid else s_zf
-            source = "ZebraFinch"
-    elif s_mm:
-        predict_list, source = s_mm, "Mouse"
-    elif s_ko:
-        predict_list, source = s_ko, "Kofam"
+            for spn in priority:
+                s_list = lists[spn]
+                if not s_list:
+                    continue
+                if len(s_list) == 1:
+                    predict_list, source = s_list, spn
+                else:
+                    valid = sets[spn] & validation_pool
+                    predict_list = [g for g in s_list if g.upper() in valid] if valid else s_list
+                    source = spn
+                break
 
-    if not predict_list:
-        return None, None, False
+        # 3. Kofam KO fallback
+        if not predict_list and ko_list:
+            predict_list, source = ko_list, "Kofam"
 
-    seen = set()
-    final_list = [x for x in predict_list if not (x.upper() in seen or seen.add(x.upper()))]
-    is_ambiguous = len(final_list) > 1
-    if is_ambiguous:
-        source = f"{source} (Ambiguous)"
-    return "/".join(final_list), source, is_ambiguous
+        if not predict_list:
+            return None, None, False
+
+        seen = set()
+        final_list = [x for x in predict_list if not (x.upper() in seen or seen.add(x.upper()))]
+        is_ambiguous = len(final_list) > 1
+        if is_ambiguous:
+            source = f"{source} (Ambiguous)"
+        return "/".join(final_list), source, is_ambiguous
+
+    return get_prediction
 
 
 def sophisticated_compare_final(row):
@@ -147,26 +149,20 @@ def sophisticated_compare_final(row):
     all_candidates = ([p.strip().upper() for p in all_potential.split("/")]
                       if all_potential and all_potential.lower() != "nan" else [])
 
-    # Priority 1: exact hit in the prediction
     if native_upper in predict_candidates:
         return "Match"
-    # Priority 2: exact hit somewhere in the source pool
     if native_upper in all_candidates:
         return "Alternative_Match"
 
-    # Priority 3: fuzzy matches
     best_fuzzy_status = "Mismatch"
     for cand in predict_candidates:
-        # A. grouped family match, e.g. cand='GRK4_5_6' native='GRK5'
         if "_" in cand:
             if native_upper in [x.upper() for x in expand_kegg_symbol(cand)]:
                 return "Group_Match"
-        # B. broad / prefix containment
         if best_fuzzy_status in ("Mismatch", "Paralog_Likely"):
             if (cand.startswith(native_upper) or native_upper.startswith(cand)) \
                     and len(cand) > 3 and len(native_upper) > 3:
                 best_fuzzy_status = "Broad_Match"
-        # C. paralog likely (similarity), lowest priority
         if best_fuzzy_status == "Mismatch":
             ratio = difflib.SequenceMatcher(None, cand, native_upper).ratio()
             is_high_sim = ratio > 0.85
@@ -189,6 +185,10 @@ def parse_args():
 def main():
     args = parse_args()
     cfg = load_config(args.config)
+    sp = get_species(cfg)
+    symbol_sources = symbol_columns(sp) + ["KO_Gene_Symbol"]
+    get_prediction = make_get_prediction(sp)
+
     tier = cfg.get("tiering", {})
     work = tier.get("work_dir", "")
 
@@ -202,7 +202,7 @@ def main():
     df = pd.read_csv(input_file)
 
     print("1. building source pool...")
-    df["All_Predict_Symbols"] = df.apply(get_all_source_symbols, axis=1)
+    df["All_Predict_Symbols"] = df.apply(lambda r: get_all_source_symbols(r, symbol_sources), axis=1)
 
     print("2. predicting symbols...")
     pred = df.apply(get_prediction, axis=1)

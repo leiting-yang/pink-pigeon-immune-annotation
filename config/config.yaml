@@ -38,22 +38,49 @@ external_data:
   # AmiGO export: all children of GO:0002376 (immune system process) plus
   # "immune" keyword hits in MF/CC. Comma-separated GO term list.
   go_terms_immune: go_terms_immune_system_process.txt
-  # Ensembl BioMart exports for the three reference species
-  chicken_biomart: processed_chicken_biomart.csv
-  zebrafinch_biomart: processed_zebrafinch_biomart.csv
-  mouse_biomart: processed_mouse_biomart.csv
-  # Manually curated mouse immune-gene functional annotation (published)
-  curated_list: ImmuneGeneFunction_20240520.csv
-  # Conserved avian immune-gene functional database (unpublished)
+  # Conserved immune-gene functional database used for final enrichment
+  # (unpublished; avian-oriented). Set species.gene_info_enrichment: false to skip.
   gene_info: gene_info.csv
-  # Pink Pigeon native gene-symbol table from the annotation pipeline
+  # Target-species native gene-symbol table from the annotation pipeline
   # (2 columns: Gene Symbol <TAB> Gene ID)
   ppg_native_symbols: Nesoenas_genes_by_name.tsv
 
-# Reference species used throughout the OrthoFinder / tiering stages
+# =============================================================================
+# Species configuration  (drives all species-specific columns and logic)
+# =============================================================================
+# To reuse the pipeline for a different study:
+#   - set `target` to your focal species (this MUST match the basename of its
+#     protein FASTA in the OrthoFinder input dir, e.g. PinkPigeon -> PinkPigeon.fa)
+#   - list your reference species under `reference`. Each needs a BioMart CSV
+#     (basename must likewise match its FASTA). A reference may optionally carry
+#     a curated functional list (Category1 / Subcategory / UniProt_function).
+#   - adjust the symbol-prediction settings to taste.
 species:
-  reference: [Mouse, Chicken, ZebraFinch]
   target: PinkPigeon
+
+  # Reference species. `biomart` is required (Ensembl BioMart export); the
+  # `curated_list` is optional extra functional annotation for that species.
+  reference:
+    - name: Mouse
+      biomart: processed_mouse_biomart.csv
+      curated_list: ImmuneGeneFunction_20240520.csv
+    - name: Chicken
+      biomart: processed_chicken_biomart.csv
+    - name: ZebraFinch
+      biomart: processed_zebrafinch_biomart.csv
+
+  # --- Symbol prediction (stage 04, process_ppg_genes.py) ---
+  # Species whose intersection is treated as a high-confidence consensus (e.g.
+  # the two avian references). Use [] to disable the consensus rule.
+  consensus_group: [Chicken, ZebraFinch]
+  # Single-species fallback order after the consensus rule. The KofamScan KO
+  # symbol is always the final fallback and need not be listed.
+  prediction_priority: [Chicken, ZebraFinch, Mouse]
+
+  # --- Final functional enrichment (stage 04, add_gene_info_3.py) ---
+  # Set false to skip the gene_info.csv enrichment step (e.g. for non-avian work
+  # where that database does not apply).
+  gene_info_enrichment: true
 
 # =============================================================================
 # Stage 00 - preprocessing (chromosome-ID normalization)

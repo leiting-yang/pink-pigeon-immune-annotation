@@ -2,39 +2,39 @@
 """
 data_merge_new.py
 =================
-Build the reference immune-protein lookup table from three species' BioMart
-exports plus a curated mouse list.
+Build the reference immune-protein lookup table from every reference species'
+BioMart export (plus an optional curated functional list per species).
 
-Steps:
-  1. clean text fields (newlines, quotes, odd punctuation) to protect the CSV
-  2. left-join mouse BioMart with the curated list (functional annotation)
-  3. tag each mouse entry's source (Curated_List vs BioMart_GO)
-  4. concatenate all three species into one master table
+Species-agnostic: the reference species, their BioMart files and any curated
+lists all come from `species:` in the config.
+
+Steps per reference species:
+  1. read its BioMart CSV and clean text fields
+  2. if it has a curated_list, left-join it (Category1 / Subcategory /
+     UniProt_function) and tag Immune_Source (Curated_List vs BioMart_GO)
+Then concatenate all species into one master table.
 
 Outputs:
-  - reference_mouse_final.csv  (mouse BioMart + curated)
-  - master_lookup_table.csv    (all species; core input to OrthoFinder filtering)
+  - reference_<species>_final.csv  (per curated species)
+  - master_lookup_table.csv        (all species; core input to OG filtering)
 """
 
 import argparse
 import csv
 import os
 import re
+import sys
 
 import pandas as pd
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pipeline_common import load_config, get_species
 
 COMMON_COLS = [
     "ProteinID", "GeneID", "Species", "GeneSymbol", "Description", "GO_Terms",
     "Category1", "Subcategory", "UniProt_function", "Immune_Source",
 ]
-
-
-def load_config(path):
-    if not path:
-        return {}
-    import yaml
-    with open(path) as fh:
-        return yaml.safe_load(fh) or {}
+CURATED_COLS = ["GeneStableID", "Category1", "Subcategory", "UniProt_function"]
 
 
 def clean_text_field(text):
@@ -53,86 +53,81 @@ def parse_args():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", help="Path to config.yaml")
-    p.add_argument("--chicken", help="processed chicken BioMart CSV")
-    p.add_argument("--zebrafinch", help="processed zebrafinch BioMart CSV")
-    p.add_argument("--mouse", help="processed mouse BioMart CSV")
-    p.add_argument("--curated", help="curated mouse immune-gene CSV")
-    p.add_argument("--out-mouse", help="output reference_mouse_final.csv")
     p.add_argument("--out-master", help="output master_lookup_table.csv")
     return p.parse_args()
+
+
+def read_reference_species(entry, base_dir):
+    """Read one reference species' BioMart table (+ optional curated list)."""
+    name = entry["name"]
+    biomart_path = resolve(entry.get("biomart"), base_dir)
+    print(f"  - {name}: {biomart_path}")
+    df = pd.read_csv(biomart_path)
+    if "Description" in df.columns:
+        df["Description"] = df["Description"].apply(clean_text_field)
+
+    curated = entry.get("curated_list")
+    if curated:
+        curated_path = resolve(curated, base_dir)
+        print(f"      curated list: {curated_path}")
+        try:
+            df_curated = pd.read_csv(curated_path, encoding="utf-8")
+        except UnicodeDecodeError:
+            df_curated = pd.read_csv(curated_path, encoding="cp1252")
+        for col in ("UniProt_function", "Description", "Comments", "GeneName"):
+            if col in df_curated.columns:
+                df_curated[col] = df_curated[col].apply(clean_text_field)
+
+        df["GeneID"] = df["GeneID"].astype(str).str.strip()
+        df_curated["GeneStableID"] = df_curated["GeneStableID"].astype(str).str.strip()
+        merge_cols = [c for c in CURATED_COLS if c in df_curated.columns]
+        df = pd.merge(df, df_curated[merge_cols], left_on="GeneID",
+                      right_on="GeneStableID", how="left")
+        if "GeneStableID" in df.columns:
+            df.drop(columns=["GeneStableID"], inplace=True)
+        df["Immune_Source"] = df["Category1"].apply(
+            lambda x: "Curated_List" if pd.notnull(x) else "BioMart_GO")
+
+    df["Species"] = name
+    return df
+
+
+def resolve(path, base_dir):
+    """Resolve a possibly-relative data path against base_dir."""
+    if not path:
+        return path
+    return path if os.path.isabs(path) or os.path.exists(path) else os.path.join(base_dir, path)
 
 
 def main():
     args = parse_args()
     cfg = load_config(args.config)
-    ext = cfg.get("external_data", {})
+    sp = get_species(cfg)
     orth = cfg.get("orthofinder", {})
     work = orth.get("work_dir", "")
 
-    def wd(name):
-        return os.path.join(work, name) if work else name
+    out_master = args.out_master or (os.path.join(work, orth.get("master_lookup", "master_lookup_table.csv"))
+                                     if work else orth.get("master_lookup", "master_lookup_table.csv"))
 
-    chicken_f = args.chicken or ext.get("chicken_biomart", "processed_chicken_biomart.csv")
-    zebra_f = args.zebrafinch or ext.get("zebrafinch_biomart", "processed_zebrafinch_biomart.csv")
-    mouse_f = args.mouse or ext.get("mouse_biomart", "processed_mouse_biomart.csv")
-    curated_f = args.curated or ext.get("curated_list", "ImmuneGeneFunction_20240520.csv")
-    out_mouse = args.out_mouse or wd(orth.get("reference_mouse", "reference_mouse_final.csv"))
-    out_master = args.out_master or wd(orth.get("master_lookup", "master_lookup_table.csv"))
+    print("Loading reference species...")
+    species_frames = []
+    for name in sp["ref_names"]:
+        entry = sp["ref_map"][name]
+        df = read_reference_species(entry, work)
+        # Save a per-species reference file for the curated species.
+        if entry.get("curated_list"):
+            ref_out = os.path.join(work, f"reference_{name}_final.csv") if work else f"reference_{name}_final.csv"
+            df.reindex(columns=COMMON_COLS).to_csv(
+                ref_out, index=False, encoding="utf-8-sig", quoting=csv.QUOTE_NONNUMERIC)
+            print(f"      saved: {ref_out}")
+        species_frames.append(df.reindex(columns=COMMON_COLS))
 
-    print("Loading input tables...")
-    df_chicken = pd.read_csv(chicken_f)
-    df_zebrafinch = pd.read_csv(zebra_f)
-    df_mouse = pd.read_csv(mouse_f)
-    try:
-        df_curated = pd.read_csv(curated_f, encoding="utf-8")
-    except UnicodeDecodeError:
-        print("UTF-8 read failed for curated list; retrying with cp1252...")
-        df_curated = pd.read_csv(curated_f, encoding="cp1252")
-
-    # --- Clean long text fields ---
-    print("Cleaning text fields...")
-    for col in ("UniProt_function", "Description", "Comments", "GeneName"):
-        if col in df_curated.columns:
-            df_curated[col] = df_curated[col].apply(clean_text_field)
-    for df in (df_mouse, df_chicken, df_zebrafinch):
-        if "Description" in df.columns:
-            df["Description"] = df["Description"].apply(clean_text_field)
-
-    # --- Merge mouse BioMart with curated list ---
-    print("Merging mouse BioMart with curated list...")
-    df_mouse["GeneID"] = df_mouse["GeneID"].astype(str).str.strip()
-    df_curated["GeneStableID"] = df_curated["GeneStableID"].astype(str).str.strip()
-
-    merge_cols = [c for c in ("GeneStableID", "Category1", "Subcategory", "UniProt_function")
-                  if c in df_curated.columns]
-    df_mouse_final = pd.merge(
-        df_mouse, df_curated[merge_cols],
-        left_on="GeneID", right_on="GeneStableID", how="left",
-    )
-    if "GeneStableID" in df_mouse_final.columns:
-        df_mouse_final.drop(columns=["GeneStableID"], inplace=True)
-
-    df_mouse_final["Immune_Source"] = df_mouse_final["Category1"].apply(
-        lambda x: "Curated_List" if pd.notnull(x) else "BioMart_GO"
-    )
-    df_mouse_final.to_csv(out_mouse, index=False, encoding="utf-8-sig",
-                          quoting=csv.QUOTE_NONNUMERIC)
-    print(f"Saved: {out_mouse}")
-
-    # --- Build the all-species master table ---
     print("Building master lookup table...")
-    for col in ("Category1", "Subcategory", "UniProt_function", "Immune_Source"):
-        df_chicken[col] = None
-        df_zebrafinch[col] = None
-
-    df_chicken = df_chicken.reindex(columns=COMMON_COLS)
-    df_zebrafinch = df_zebrafinch.reindex(columns=COMMON_COLS)
-    df_mouse_final = df_mouse_final.reindex(columns=COMMON_COLS)
-
-    master_df = pd.concat([df_mouse_final, df_chicken, df_zebrafinch], ignore_index=True)
+    master_df = pd.concat(species_frames, ignore_index=True)
     master_df.to_csv(out_master, index=False, encoding="utf-8-sig",
                      quoting=csv.QUOTE_NONNUMERIC)
-    print(f"Saved: {out_master}")
+    print(f"Saved: {out_master}  ({len(master_df)} rows, "
+          f"{len(sp['ref_names'])} reference species)")
 
 
 if __name__ == "__main__":
