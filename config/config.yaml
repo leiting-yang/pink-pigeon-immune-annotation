@@ -26,10 +26,11 @@ reference:
   gff3_raw: /maps/projects/echo/data/PPigeons/Annotation/Nesoenas_mayeri-GCA_963082525.1-2023_10-genes.gff3
   # Reference genome FASTA (INSDC accessions as sequence IDs)
   genome_fasta: /maps/projects/echo/data/PPigeons/Reference/GCA_963082525.1_bNesMay2.1_genomic.fasta
-  # Pink Pigeon CDS protein FASTA used as InterProScan input
-  protein_fasta_interproscan: CDS_protein_seq.fa
-  # Pink Pigeon protein FASTA used as KofamScan input
-  protein_fasta_kofam: PinkPigeon.faa
+  # Target-species protein FASTA, used as input to BOTH InterProScan and
+  # KofamScan. Produced from the genome FASTA + GFF3 by
+  # 00_preprocess/extract_proteins.sh, i.e.:
+  #   gffread -y PinkPigeon.faa -g <genome_fasta> <gff3_raw>
+  protein_fasta: PinkPigeon.faa
 
 # -----------------------------------------------------------------------------
 # External data that MUST be prepared manually (see README "Manual steps")

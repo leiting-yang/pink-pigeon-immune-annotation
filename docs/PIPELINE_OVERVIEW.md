@@ -14,8 +14,9 @@ annotation pipeline. Reference species: Mouse (*Mus musculus*), Chicken
 ## Full flow
 
 ```
-Stage 00  gffid_change.sh ─► renamed / autosome GFF3
-          seqid_list.sh   ─► ids_compare.csv (manual QC)
+Stage 00  extract_proteins.sh ─► PinkPigeon.faa (protein FASTA, feeds 01 + 02)
+          gffid_change.sh     ─► renamed / autosome GFF3
+          seqid_list.sh       ─► ids_compare.csv (manual QC)
 
 Stage 01  interproscan_run.sh ─► interproscan_merged.tsv
           immunewash.py       ─► interproscan_immune_results.csv
@@ -48,8 +49,8 @@ Stage 04  merge_immune_annotations.py           ─► PinkPigeon_Immune_Gene_Ma
 | File | Source | Used by |
 |------|--------|---------|
 | `Nesoenas_mayeri-...-genes.gff3` | ENA/INSDC (GCA_963082525.1) | preprocess, tiering |
-| `GCA_963082525.1_..._genomic.fasta` | ENA/INSDC | seqid QC |
-| `CDS_protein_seq.fa` / `PinkPigeon.faa` | genome annotation | InterProScan / KofamScan |
+| `GCA_963082525.1_..._genomic.fasta` | ENA/INSDC | protein extraction, seqid QC |
+| `PinkPigeon.faa` | extract_proteins.sh (gffread) | InterProScan / KofamScan |
 | `go_terms_immune_system_process.txt` | AmiGO (GO:0002376 subtree + "immune" MF/CC) | immunewash |
 | `processed_{chicken,zebrafinch,mouse}_biomart.csv` | Ensembl BioMart | data_merge_new |
 | `ImmuneGeneFunction_20240520.csv` | published curated mouse list | data_merge_new |
@@ -59,6 +60,13 @@ Stage 04  merge_immune_annotations.py           ─► PinkPigeon_Immune_Gene_Ma
 ---
 
 ## Stage 00 - preprocessing
+
+### `extract_proteins.sh`
+Translate the genome + GFF3 into the target-species protein FASTA with gffread
+(`gffread -y PinkPigeon.faa -g <genome.fasta> <gff3>`). This FASTA is the input
+to both InterProScan and KofamScan.
+- In: genome FASTA, raw GFF3
+- Out: `PinkPigeon.faa`
 
 ### `gffid_change.sh`
 Replace simple chromosome IDs with INSDC accessions using
@@ -78,7 +86,7 @@ Compare sequence IDs between the genome FASTA and the GFF3.
 ### `interproscan_run.sh`  *(SLURM array)*
 InterProScan (`-f tsv -dp -goterms`) per FASTA chunk, then merge. The `seqkit`
 split is a manual prerequisite; the merge runs as a separate array index.
-- In: `CDS_protein_seq.fa` (split into chunks)
+- In: `PinkPigeon.faa` (split into chunks)
 - Out: `ipr_out/interproscan_merged.tsv`
 
 ### `immunewash.py`

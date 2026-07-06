@@ -26,6 +26,7 @@ manual() { echo; echo ">>> MANUAL / HPC STEP: $*"; echo ">>> Submit it, wait for
 # -----------------------------------------------------------------------------
 stage_preprocess() {
   banner "Stage 00 - preprocess"
+  bash 00_preprocess/extract_proteins.sh -g "<genome.fasta>" -a "<raw.gff3>" -o PinkPigeon.faa
   bash 00_preprocess/gffid_change.sh -g "<raw.gff3>" -m config/chromosome_id_map.tsv
   echo "(optional QC) bash 00_preprocess/seqid_list.sh -f <genome.fasta> -g <raw.gff3>"
 }

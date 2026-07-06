@@ -29,7 +29,7 @@
 set -euo pipefail
 
 # ----- USER CONFIG (keep in sync with config/config.yaml) --------------------
-INFA="CDS_protein_seq.fa"          # Pink Pigeon CDS protein FASTA
+INFA="PinkPigeon.faa"              # target-species protein FASTA (from extract_proteins.sh)
 NCHUNK=8                            # number of chunks (must match --array 1-N)
 CHUNK_DIR="$PWD/ipr_chunks"
 OUTDIR="$PWD/ipr_out"

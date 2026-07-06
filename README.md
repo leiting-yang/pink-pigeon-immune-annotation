@@ -93,6 +93,9 @@ to days; submit them, wait, then run the local Python steps. The driver
 
 ### Stage 00 - preprocessing
 ```bash
+# extract the protein FASTA from the genome + GFF3 (input to stages 01 and 02)
+bash 00_preprocess/extract_proteins.sh -g <genome.fasta> -a <raw.gff3> -o PinkPigeon.faa
+# normalize chromosome IDs
 bash 00_preprocess/gffid_change.sh -g <raw.gff3> -m config/chromosome_id_map.tsv \
      -r NM_genes.renamed.gff3 -a NM_genes.final.gff3
 # optional QC (inspect the output by hand):
@@ -102,7 +105,7 @@ bash 00_preprocess/seqid_list.sh -f <genome.fasta> -g <raw.gff3>
 ### Stage 01 - InterProScan  (HPC)
 ```bash
 # 1. MANUAL: split the protein FASTA first
-module load seqkit && seqkit split -p 8 -O ipr_chunks CDS_protein_seq.fa
+module load seqkit && seqkit split -p 8 -O ipr_chunks PinkPigeon.faa
 # 2. array job (one InterProScan run per chunk)
 sbatch 01_interproscan/interproscan_run.sh
 # 3. merge the chunk outputs
