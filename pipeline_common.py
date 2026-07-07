@@ -61,7 +61,7 @@ def get_species(cfg):
 # master_lookup field -> output-column suffix. Every reference species gets the
 # base fields; species that carry a curated list additionally get the curated
 # fields. Producer (final_filtering) and consumers (merge_immune_annotations,
-# process_ppg_genes, ...) all build their column names from here so they agree.
+# process_symbols, ...) all build their column names from here so they agree.
 BASE_FIELD_SUFFIX = [
     ("GeneSymbol", "GeneSymbols"),
     ("Description", "Description"),

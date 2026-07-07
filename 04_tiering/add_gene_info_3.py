@@ -39,7 +39,7 @@ def standardize_symbol(symbol):
     return str(symbol).strip().upper()
 
 
-def load_ppg_names(filepath):
+def load_native_symbols(filepath):
     """Native TSV: column 0 = Gene Symbol, column 1 = Gene ID -> {id: SYMBOL}."""
     print(f"Loading native symbols from {filepath}...")
     id_to_symbol = {}
@@ -60,9 +60,9 @@ def load_ppg_names(filepath):
 def lookup_function(row, info_dict, target_columns, symbol_sources):
     """Collect candidate symbols from all sources, then aggregate every hit."""
     candidates = []
-    ppg_sym = str(row.get("PPG_Native_Symbol", "")).strip()
-    if ppg_sym and ppg_sym.lower() != "nan":
-        candidates.append(standardize_symbol(ppg_sym))
+    native_sym = str(row.get("Native_Symbol", "")).strip()
+    if native_sym and native_sym.lower() != "nan":
+        candidates.append(standardize_symbol(native_sym))
     for source in symbol_sources:
         for s in str(row.get(source, "")).split(";"):
             clean = standardize_symbol(s)
@@ -92,7 +92,7 @@ def parse_args():
     p.add_argument("--config", help="Path to config.yaml")
     p.add_argument("--master", help="Immune_Gene_Master_List.csv")
     p.add_argument("--gene-info", help="gene_info.csv")
-    p.add_argument("--ppg-names", help="target native symbol TSV")
+    p.add_argument("--native-symbols", help="target native symbol TSV")
     p.add_argument("--output", help="Annotated output CSV")
     p.add_argument("--unmapped", help="Unmapped symbols TXT")
     return p.parse_args()
@@ -113,16 +113,16 @@ def main():
 
     master_file = args.master or wd(tier.get("master_list", "Immune_Gene_Master_List.csv"))
     gene_info_file = args.gene_info or cfg.get("external_data", {}).get("gene_info", "gene_info.csv")
-    ppg_file = args.ppg_names or cfg.get("external_data", {}).get("ppg_native_symbols",
-                                                                 "Nesoenas_genes_by_name.tsv")
+    native_file = args.native_symbols or cfg.get("external_data", {}).get("native_symbols",
+                                                                          "Nesoenas_genes_by_name.tsv")
     output_file = args.output or wd(tier.get("annotated_final", "Immune_Annotated_Final.csv"))
     unmapped_file = args.unmapped or wd(tier.get("unmapped_symbols", "Unmapped_Gene_Info_Symbols.txt"))
 
     print("Loading master list...")
     df_master = pd.read_csv(master_file)
 
-    ppg_id_map = load_ppg_names(ppg_file)
-    df_master["PPG_Native_Symbol"] = df_master["GeneID"].astype(str).str.strip().map(ppg_id_map)
+    native_id_map = load_native_symbols(native_file)
+    df_master["Native_Symbol"] = df_master["GeneID"].astype(str).str.strip().map(native_id_map)
 
     if not sp["gene_info_enrichment"]:
         print("gene_info enrichment disabled (species.gene_info_enrichment: false); "
@@ -151,7 +151,7 @@ def main():
         all_info_symbols.add(key)
     print(f"Loaded {len(info_dict)} gene_info entries.")
 
-    native_symbols = set(df_master["PPG_Native_Symbol"].dropna().apply(standardize_symbol))
+    native_symbols = set(df_master["Native_Symbol"].dropna().apply(standardize_symbol))
     overlap = native_symbols & all_info_symbols
     print(f"Native symbols in master: {len(native_symbols)}; overlap with gene_info: {len(overlap)}")
 

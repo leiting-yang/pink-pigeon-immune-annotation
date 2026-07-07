@@ -1,5 +1,8 @@
 # =============================================================================
-# Pink Pigeon immune-gene annotation pipeline - central configuration
+# Immune-gene annotation pipeline - central configuration
+# -----------------------------------------------------------------------------
+# The example values below are the reference Pink Pigeon setup; replace them
+# with your own paths, species and filenames.
 # =============================================================================
 # This file is the single source of truth for all data paths and parameters
 # used by the Python stages. Every Python script accepts `--config <this file>`
@@ -44,7 +47,7 @@ external_data:
   gene_info: gene_info.csv
   # Target-species native gene-symbol table from the annotation pipeline
   # (2 columns: Gene Symbol <TAB> Gene ID)
-  ppg_native_symbols: Nesoenas_genes_by_name.tsv
+  native_symbols: Nesoenas_genes_by_name.tsv
 
 # =============================================================================
 # Species configuration  (drives all species-specific columns and logic)
@@ -70,7 +73,7 @@ species:
     - name: ZebraFinch
       biomart: processed_zebrafinch_biomart.csv
 
-  # --- Symbol prediction (stage 04, process_ppg_genes.py) ---
+  # --- Symbol prediction (stage 04, process_symbols.py) ---
   # Species whose intersection is treated as a high-confidence consensus (e.g.
   # the two avian references). Use [] to disable the consensus rule.
   consensus_group: [Chicken, ZebraFinch]

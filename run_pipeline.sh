@@ -64,7 +64,7 @@ stage_tiering() {
   banner "Stage 04 - tiering"
   $PY 04_tiering/merge_immune_annotations.py          --config "$CONFIG"
   $PY 04_tiering/add_gene_info_3.py                   --config "$CONFIG"
-  $PY 04_tiering/process_ppg_genes.py                 --config "$CONFIG"
+  $PY 04_tiering/process_symbols.py                   --config "$CONFIG"
   $PY 04_tiering/merge_og_stats_to_final_gene_table.py --config "$CONFIG"
   $PY 04_tiering/merge_orthology_to_final_gene_table.py --config "$CONFIG"
   $PY 04_tiering/visualization.py                     --config "$CONFIG"

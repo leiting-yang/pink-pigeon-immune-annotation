@@ -1,8 +1,11 @@
-# Pink Pigeon Immune-Gene Annotation Pipeline
+# Immune-Gene Annotation Pipeline
 
-Identify and annotate immune-related genes in the Pink Pigeon
-(*Nesoenas mayeri*) genome by integrating three independent lines of evidence
-and assigning each gene a confidence tier.
+Identify and annotate immune-related genes in a genome by integrating three
+independent lines of evidence and assigning each gene a confidence tier. The
+pipeline was originally developed for the Pink Pigeon (*Nesoenas mayeri*), but
+its analysis logic is species-agnostic and driven entirely by
+`config/config.yaml`, so it can be reused for another species without editing
+code.
 
 - **InterProScan** - protein-domain based immune GO-term filtering
 - **KofamScan** - KEGG KO annotation restricted to immune pathways
@@ -71,25 +74,81 @@ and `config/cluster.sh` (SLURM scripts) - and none of the analysis scripts.
 
 ---
 
-## 3. External data to prepare manually
+## 3. Input files to prepare
 
-These files are **not** produced by the pipeline and must be obtained before
-running (paths set under `external_data:` in the config):
+Nothing in this section is produced by the pipeline; you must obtain every file
+below **before** running and point the config at it. The examples in the tables
+are the Pink Pigeon filenames shipped in the default `config/config.yaml` —
+replace them with your own.
 
-| File | Configured under | Source |
-|------|------------------|--------|
-| `go_terms_immune_system_process.txt` | `external_data` | AmiGO: all children of GO:0002376 plus "immune" MF/CC hits, comma-separated |
-| `processed_mouse_biomart.csv` | `species.reference[Mouse].biomart` | Ensembl BioMart (Mouse gene IDs from the curated list) |
-| `processed_chicken_biomart.csv` | `species.reference[Chicken].biomart` | Ensembl BioMart (Chicken immune genes) |
-| `processed_zebrafinch_biomart.csv` | `species.reference[ZebraFinch].biomart` | Ensembl BioMart (Zebra Finch immune genes) |
-| `ImmuneGeneFunction_20240520.csv` | `species.reference[Mouse].curated_list` | Published curated mouse immune-gene list (Category1, Subcategory, UniProt_function) |
-| `gene_info.csv` | `external_data` | Conserved avian immune-gene functional database (unpublished; optional, see `gene_info_enrichment`) |
-| `Nesoenas_genes_by_name.tsv` | `external_data` | Target-species native gene-symbol table (Symbol `<TAB>` Gene ID) |
+### 3.1 Complete input inventory
 
-Each reference species listed under `species.reference` needs a BioMart CSV; a
-curated functional list is optional per species. The reference genome FASTA,
-GFF3 and the target/reference protein FASTAs come from the genome annotation
-project (see `reference:` in the config).
+**A. Target species (from your genome annotation project)** — set under
+`reference:` and `external_data:`:
+
+| File (example) | Config key | What it is |
+|------|------------|------------|
+| `GCA_..._genomic.fasta` | `reference.genome_fasta` | Genome nucleotide FASTA. Sequence IDs are whatever your assembly uses (INSDC accessions, RefSeq, or simple `1/2/Z`). |
+| `Nesoenas_...-genes.gff3` | `reference.gff3_raw` | Gene-model annotation GFF3 for the same assembly. |
+| `PinkPigeon.faa` | `reference.protein_fasta` | Target protein FASTA. **Produced** by stage 00 `extract_proteins.sh` from the two files above; you can also supply your own. Feeds InterProScan and KofamScan. |
+| `Nesoenas_genes_by_name.tsv` | `external_data.native_symbols` | The annotation's own gene symbols: 2 columns, `Symbol <TAB> GeneID`, no required header. Used only to compare predicted vs. native symbols; supply an empty/partial file if you have none. |
+
+**B. Reference species (one set per entry in `species.reference`)** — used by
+OrthoFinder and the reference-symbol lookup:
+
+| File (example) | Config key | Source |
+|------|------------|--------|
+| `<Species>.fa` protein FASTA | *(OrthoFinder input dir, see 3.2)* | That species' proteome. **The FASTA basename must equal the species `name`** in the config (e.g. `Chicken.fa`), because OrthoFinder derives its column names from the filename. |
+| `processed_<species>_biomart.csv` | `species.reference[].biomart` | Ensembl BioMart export of that species' immune genes (gene ID, symbol, description, GO terms). Required for every reference species. |
+| `ImmuneGeneFunction_20240520.csv` | `species.reference[].curated_list` | **Optional** published/curated functional list for one species (columns `GeneStableID`, `Category1`, `Subcategory`, `UniProt_function`). Only the Pink Pigeon setup attaches one, to Mouse. |
+
+**C. Immune reference sets / databases** — set under `external_data:`:
+
+| File (example) | Config key | Source |
+|------|------------|--------|
+| `go_terms_immune_system_process.txt` | `external_data.go_terms_immune` | AmiGO export: all children of GO:0002376 plus "immune" MF/CC hits, as a single comma-separated list. Defines the InterProScan immune filter. |
+| `gene_info.csv` | `external_data.gene_info` | **Optional** conserved immune-gene functional database (avian-oriented, keyed by `entrezgene_accession`). Set `species.gene_info_enrichment: false` to skip it for non-avian work. |
+
+**D. Downloaded automatically** (no manual prep): the KEGG `ko00001.json`
+hierarchy is fetched by `02_kofamscan/prepare_db.py`. If the compute node has no
+internet, download it elsewhere and drop it into the KofamScan `processing_dir`.
+
+### 3.2 Where to put the files (directory organization)
+
+Paths in the config are resolved as follows:
+
+- **Absolute paths always work** and are the simplest choice. If you are unsure,
+  give every input an absolute path in `config/config.yaml` and stop worrying
+  about the rules below.
+- **Relative filenames** are resolved against the **`work_dir` of the stage that
+  reads them**. So place each file in the work_dir of its consumer:
+
+  | Input | Resolved against |
+  |-------|------------------|
+  | `go_terms_immune` | `interproscan.work_dir` |
+  | `biomart`, `curated_list` (per species) | `orthofinder.work_dir` |
+  | `gene_info`, `native_symbols` | current directory when you run stage 04 (so an absolute path is safest here) |
+  | genome FASTA, GFF3 | `reference.*` — give absolute paths |
+
+- **OrthoFinder input directory** (`cluster.sh` `ORTHO_INPUT_DIR` /
+  `orthofinder.input_dir`) must contain **exactly** the target + reference
+  protein FASTAs, each named `<SpeciesName>.fa` to match the config. Nothing else.
+
+A workable layout keeps one directory per stage (matching the `work_dir` values
+in the config) and drops each input into the stage that consumes it:
+
+```
+workspace/
+├── interproscan/   go_terms_immune_system_process.txt   (+ IPR outputs)
+├── kofam/          (KofamScan outputs; ko00001.json auto-downloaded)
+├── orthofinder/    processed_*_biomart.csv  ImmuneGeneFunction_*.csv
+│   └── ortho_input/  PinkPigeon.fa  Mouse.fa  Chicken.fa  ZebraFinch.fa
+│                     (protein FASTAs ONLY, nothing else)
+└── tier2/          gene_info.csv  Nesoenas_genes_by_name.tsv  (+ final tables)
+```
+
+The target genome FASTA and GFF3 usually live wherever the annotation project
+put them; reference them with absolute paths under `reference:`.
 
 ---
 
@@ -150,14 +209,15 @@ python 03_orthofinder/compute_orthology_stats.py  --config config/config.yaml
 ```bash
 python 04_tiering/merge_immune_annotations.py           --config config/config.yaml
 python 04_tiering/add_gene_info_3.py                    --config config/config.yaml
-python 04_tiering/process_ppg_genes.py                  --config config/config.yaml
+python 04_tiering/process_symbols.py                    --config config/config.yaml
 python 04_tiering/merge_og_stats_to_final_gene_table.py --config config/config.yaml
 python 04_tiering/merge_orthology_to_final_gene_table.py --config config/config.yaml
 python 04_tiering/visualization.py                      --config config/config.yaml
 ```
 
 Final table: `Immune_Predict_Result_Final_with_OG_and_Orthology.csv`
-plus 7 PNG figures in the configured `figure_dir`.
+plus 7 PNG figures in the configured `figure_dir`. Every column of the final
+table is documented in [`docs/OUTPUT_COLUMNS.md`](docs/OUTPUT_COLUMNS.md).
 
 ---
 
@@ -166,13 +226,13 @@ plus 7 PNG figures in the configured `figure_dir`.
 These are **not** automated and need human action or review:
 
 1. **External data downloads** (section 3) - BioMart, AmiGO, curated list,
-   `gene_info.csv`, PPG native symbols.
+   `gene_info.csv`, target native symbols.
 2. **KEGG JSON download** (`prepare_db.py`) - needs internet. HPC compute nodes
    are often offline; download the JSON elsewhere and copy it in if it fails.
 3. **FASTA splitting** before the InterProScan array job (`seqkit split`).
 4. **ID consistency check** (`seqid_list.sh`) - a diagnostic; inspect
    `ids_compare.csv` by eye before trusting the annotation.
-5. **Symbol comparison review** - in `process_ppg_genes.py` the
+5. **Symbol comparison review** - in `process_symbols.py` the
    `Symbol_Comparison` categories `Paralog_Likely` and `Mismatch` flag cases
    that should be curated by hand.
 
@@ -195,11 +255,15 @@ immune-annotation-pipeline/
 ├── 02_kofamscan/               KofamScan run + KEGG immune filtering
 ├── 03_orthofinder/             OrthoFinder + orthogroup statistics
 ├── 04_tiering/                 evidence integration + symbols + figures
-└── docs/PIPELINE_OVERVIEW.md   detailed per-script I/O reference
+└── docs/
+    ├── PIPELINE_OVERVIEW.md    detailed per-script I/O reference
+    └── OUTPUT_COLUMNS.md       column dictionary for the final table
 ```
 
 See [`docs/PIPELINE_OVERVIEW.md`](docs/PIPELINE_OVERVIEW.md) for a per-script
-description of inputs, outputs and logic.
+description of inputs, outputs and logic, and
+[`docs/OUTPUT_COLUMNS.md`](docs/OUTPUT_COLUMNS.md) for what every column in the
+final table means.
 
 ---
 
@@ -243,3 +307,55 @@ To adapt it:
 
 Everything downstream (columns, orthology summaries, figures) follows the
 configured species automatically.
+
+---
+
+## 8. Source-specific blocks you may need to review
+
+The `species:` block covers naming and species logic, but a few steps make
+assumptions about **ID conventions and external-database formats** that are not
+config-driven. None of these block a first run; review them if your data comes
+from a different source (e.g. NCBI RefSeq instead of Ensembl/ENA) or a different
+tool version. They are listed here rather than generalized because the right
+value depends on your specific inputs.
+
+1. **Transcript/gene ID-prefix cleaning.** Several scripts strip
+   Ensembl/ENA-style prefixes (`transcript:`, `mRNA:`, `gene:`, `transcript_`,
+   `gene_`) so the transcript and gene IDs coming from the GFF3, InterProScan,
+   KofamScan and OrthoFinder line up on the same join key. Files:
+   `02_kofamscan/extract_map.py`, `02_kofamscan/map_to_gene.py`,
+   `04_tiering/merge_immune_annotations.py`,
+   `04_tiering/merge_og_stats_to_final_gene_table.py`,
+   `04_tiering/merge_orthology_to_final_gene_table.py`,
+   `03_orthofinder/compute_orthology_stats.py`. If your annotation uses a
+   different convention (e.g. NCBI `rna-`, `gene-`, or already-bare IDs), adjust
+   these `.replace(...)` calls so the transcript-to-gene join keys match. If your
+   IDs are already consistent across tools, the replacements are harmless no-ops.
+
+2. **Ensembl protein-version suffix.** `03_orthofinder/final_filtering_v2.py`
+   strips a trailing `.N` version from reference protein IDs (e.g. `ENSMUSP...9`).
+   Only relevant to Ensembl-style versioned IDs; harmless otherwise.
+
+3. **Chromosome-ID map (optional feature).** `config/chromosome_id_map.tsv` and
+   `00_preprocess/gffid_change.sh` exist only to reconcile a genome FASTA and a
+   GFF3 that use *different* sequence IDs (e.g. Ensembl `1/2/Z` vs INSDC
+   accessions). Most NCBI RefSeq assemblies already match, so you can **skip
+   stage 00 renaming entirely** and point `gff3_raw` at the raw GFF3. The map is
+   assembly-specific and is not required by the rest of the pipeline. Run
+   `00_preprocess/seqid_list.sh` first if you are unsure whether the IDs match.
+
+4. **Immune GO-term whitelist tokens.** `01_interproscan/immunewash.py` removes
+   InterProScan source tags such as `(InterPro,PANTHER)` from the GO column
+   before matching. If your InterProScan version formats the GO column
+   differently, check that token list.
+
+5. **KEGG immune-pathway selection.** `02_kofamscan/filter_kofam.py` finds immune
+   KOs by walking the KEGG hierarchy through the literal node names
+   `09150 Organismal Systems` and `09151 Immune system`. If KEGG renames those
+   nodes in a future `ko00001.json`, update the strings. (The score cutoff uses
+   KofamScan's own per-KO adaptive threshold, so it needs no tuning.)
+
+6. **KEGG grouped-symbol expansion.** `04_tiering/process_symbols.py`
+   `expand_kegg_symbol` splits compact KO symbols like `GRK4_5_6` into
+   `GRK4/GRK5/GRK6`. This is a heuristic for KEGG's naming style; adjust it if
+   your KO symbols follow a different pattern.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-process_ppg_genes.py
-====================
+process_symbols.py
+==================
 Predict a target-species gene symbol from the reference symbols and
 systematically compare it against the native symbol from the genome annotation.
 Species-agnostic: the reference symbol sources, the consensus group and the
@@ -130,8 +130,8 @@ def make_get_prediction(sp):
 
 def sophisticated_compare_final(row):
     """Compare predicted symbol against the native symbol; return a category."""
-    native = str(row["PPG_Native_Symbol"]).strip()
-    predict = str(row["PPG_Predict_Symbol"]).strip()
+    native = str(row["Native_Symbol"]).strip()
+    predict = str(row["Predicted_Symbol"]).strip()
     all_potential = str(row["All_Predict_Symbols"]).strip()
 
     native_empty = native.lower() == "nan" or native == ""
@@ -206,7 +206,7 @@ def main():
 
     print("2. predicting symbols...")
     pred = df.apply(get_prediction, axis=1)
-    df["PPG_Predict_Symbol"] = [x[0] for x in pred]
+    df["Predicted_Symbol"] = [x[0] for x in pred]
     df["Predict_Sources"] = [x[1] for x in pred]
     df["Ambiguity_Flag"] = [x[2] for x in pred]
 

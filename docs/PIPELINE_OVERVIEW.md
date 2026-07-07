@@ -1,8 +1,10 @@
 # Pipeline Overview
 
-Per-script reference for the Pink Pigeon (*Nesoenas mayeri*) immune-gene
-annotation pipeline. Reference species: Mouse (*Mus musculus*), Chicken
-(*Gallus gallus*), Zebra Finch (*Taeniopygia guttata*).
+Per-script reference for the immune-gene annotation pipeline. Filenames and
+species below are from the reference Pink Pigeon (*Nesoenas mayeri*) setup —
+target species with Mouse (*Mus musculus*), Chicken (*Gallus gallus*) and Zebra
+Finch (*Taeniopygia guttata*) as references — but the flow is the same for any
+species configured in `config/config.yaml`.
 
 > This overview reflects the **complete** flow, including the orthogroup
 > enrichment-statistics layer (`compute_og_stats.py`,
@@ -36,7 +38,7 @@ Stage 03  data_merge_new.py         ─► master_lookup_table.csv
 
 Stage 04  merge_immune_annotations.py           ─► Immune_Gene_Master_List.csv
           add_gene_info_3.py                    ─► Immune_Annotated_Final.csv
-          process_ppg_genes.py                  ─► Immune_Predict_Result_Final.csv
+          process_symbols.py                    ─► Immune_Predict_Result_Final.csv
           merge_og_stats_to_final_gene_table.py ─► ..._Final_with_OG_stats.csv
           merge_orthology_to_final_gene_table.py─► ..._Final_with_OG_and_Orthology.csv
           visualization.py                      ─► 7 PNG figures
@@ -174,11 +176,11 @@ Gene-level outer join of the three evidence sources; assign Tier
 - Out: `Immune_Gene_Master_List.csv`
 
 ### `add_gene_info_3.py`
-Enrich with `gene_info.csv` via an all-in symbol strategy (PPG native, Chicken,
-ZebraFinch, Mouse, Kofam symbols).
+Enrich with `gene_info.csv` via an all-in symbol strategy (target native,
+Chicken, ZebraFinch, Mouse, Kofam symbols).
 - Out: `Immune_Annotated_Final.csv`, `Unmapped_Gene_Info_Symbols.txt`
 
-### `process_ppg_genes.py`
+### `process_symbols.py`
 Predict a gene symbol (avian consensus > Chicken > ZebraFinch > Mouse > Kofam)
 and compare against the native symbol (Match, Alternative_Match, Group_Match,
 Broad_Match, Paralog_Likely, Mismatch, Novel_Annotation, ...).
@@ -202,3 +204,10 @@ Seven 300-dpi PNG figures: evidence Venn, Tier distribution, top-10 immune
 pathways, mouse category distribution, symbol-comparison pie, prediction-source
 pie, ambiguity (7a/7b).
 - In: final annotated table → Out: PNGs in `figure_dir`
+
+---
+
+## Final-table columns
+
+Every column of `Immune_Predict_Result_Final_with_OG_and_Orthology.csv` is
+documented in [`OUTPUT_COLUMNS.md`](OUTPUT_COLUMNS.md).
