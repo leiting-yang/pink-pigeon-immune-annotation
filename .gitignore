@@ -12,6 +12,12 @@
 # Keep config tables that ARE part of the repo
 !config/chromosome_id_map.tsv
 
+# Keep the small bundled reference tables (see reference_data/CITATIONS.md).
+# Large reference proteome FASTAs stay ignored - download them per CITATIONS.md.
+!reference_data/*.csv
+!reference_data/*.txt
+!reference_data/*.md
+
 # Figures
 *.png
 *.pdf

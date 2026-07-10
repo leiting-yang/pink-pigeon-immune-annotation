@@ -1,0 +1,132 @@
+# =============================================================================
+# Immune-gene annotation pipeline - configuration for the Mauritius Kestrel test
+# -----------------------------------------------------------------------------
+# Target: Mauritius Kestrel (Falco punctatus), assembly bFalPun1.1
+#         (NCBI RefSeq GCF_963210335.1). Reference species reused from the Pink
+#         Pigeon run (Mouse / Chicken / ZebraFinch) since the target is a bird.
+#
+# Layout convention (tidy outputs):
+#   INPUT files live in the workspace root and are referenced by ABSOLUTE paths,
+#   so they are found regardless of each stage's work_dir.
+#   OUTPUT files go under  <workspace>/outputs/0X_<stage>/  (per-stage folders).
+#
+#   /maps/projects/echo/people/blv970/immune_test
+#   ├── GCF_...fna / .gff / Kestrel.faa / *_biomart.csv / go_terms... (inputs)
+#   ├── ortho_input/                       (OrthoFinder input + its Results_kestrel)
+#   └── outputs/
+#       ├── 01_interproscan/  ipr_chunks/ ipr_out/ interproscan_immune_results.csv
+#       ├── 02_kofamscan/      result_kofam_detail.txt, step*.txt, final_kofam_*.tsv
+#       ├── 03_orthofinder/    master_lookup, Final_Filtered_List*, OG_stats_*
+#       └── 04_tiering/        Immune_*.csv, figures/
+#
+# Run the Python stages with:  --config test/config.yaml
+# =============================================================================
+
+project_root: /maps/projects/echo/people/blv970/immune_test
+
+# -----------------------------------------------------------------------------
+# Reference inputs (absolute paths; RefSeq FASTA and GFF share the same seq IDs,
+# so stage-00 chromosome renaming is NOT needed).
+# -----------------------------------------------------------------------------
+reference:
+  gff3_raw: /maps/projects/echo/people/blv970/immune_test/GCF_963210335.1_bFalPun1.1_genomic.gff
+  genome_fasta: /maps/projects/echo/people/blv970/immune_test/GCF_963210335.1_bFalPun1.1_genomic.fna
+  # Produced by 00_preprocess/extract_proteins.sh (gffread + cleaning).
+  protein_fasta: /maps/projects/echo/people/blv970/immune_test/Kestrel.faa
+
+# -----------------------------------------------------------------------------
+# External data (absolute paths). See reference_data/CITATIONS.md for provenance.
+# -----------------------------------------------------------------------------
+external_data:
+  go_terms_immune: /maps/projects/echo/people/blv970/immune_test/go_terms_immune_system_process.txt
+  gene_info: /maps/projects/echo/people/blv970/immune_test/gene_info.csv
+  # Native symbols extracted from the GFF by 00_preprocess/extract_native_symbols.sh.
+  native_symbols: /maps/projects/echo/people/blv970/immune_test/Kestrel_genes_by_name.tsv
+
+# =============================================================================
+# Species configuration
+# =============================================================================
+species:
+  target: Kestrel
+  reference:
+    - name: Mouse
+      biomart: /maps/projects/echo/people/blv970/immune_test/processed_mouse_biomart.csv
+      curated_list: /maps/projects/echo/people/blv970/immune_test/ImmuneGeneFunction_20240520.csv
+    - name: Chicken
+      biomart: /maps/projects/echo/people/blv970/immune_test/processed_chicken_combined.csv
+    - name: ZebraFinch
+      biomart: /maps/projects/echo/people/blv970/immune_test/processed_zebrafinch_combined.csv
+  consensus_group: [Chicken, ZebraFinch]
+  prediction_priority: [Chicken, ZebraFinch, Mouse]
+  gene_info_enrichment: true
+
+# =============================================================================
+# Stage 00 - preprocessing (chromosome renaming NOT used for this RefSeq assembly)
+# =============================================================================
+preprocess:
+  work_dir: /maps/projects/echo/people/blv970/immune_test
+  chromosome_map: config/chromosome_id_map.tsv   # unused here
+  gff3_renamed: NM_genes.renamed.gff3            # unused here
+  gff3_autosomes: NM_genes.final.gff3            # unused here
+
+# =============================================================================
+# Stage 01 - InterProScan   (outputs -> outputs/01_interproscan)
+# =============================================================================
+# The SLURM script writes ipr_chunks/ and ipr_out/ into IPR_WORK_DIR (cluster.sh),
+# which must equal this work_dir.
+interproscan:
+  work_dir: /maps/projects/echo/people/blv970/immune_test/outputs/01_interproscan
+  merged_tsv: ipr_out/interproscan_merged.tsv
+  immune_results: interproscan_immune_results.csv
+
+# =============================================================================
+# Stage 02 - KofamScan   (outputs -> outputs/02_kofamscan)
+# =============================================================================
+# run_kofam.sh writes result_kofam_detail.txt into KOFAM_WORK_DIR (cluster.sh),
+# which must equal this work_dir/processing_dir.
+kofamscan:
+  work_dir: /maps/projects/echo/people/blv970/immune_test/outputs/02_kofamscan
+  processing_dir: /maps/projects/echo/people/blv970/immune_test/outputs/02_kofamscan
+  kegg_json: ko00001.json
+  kofam_detail: result_kofam_detail.txt
+  transcript_to_gene: transcript_to_gene.txt
+  step_filtered_score: step1_filtered_score.txt
+  step_immune_only: step2_immune_only.txt
+  step_deduplicated: step3_final_deduplicated.txt
+  gene_level: final_kofam_gene_level.tsv
+  annotated: final_kofam_annotated.tsv
+
+# =============================================================================
+# Stage 03 - OrthoFinder   (Python outputs -> outputs/03_orthofinder)
+# =============================================================================
+# input_dir and the OrthoFinder result paths stay under the workspace ortho_input/
+# (absolute), because the SLURM job runs OrthoFinder there. Only the Python-stage
+# tables (master_lookup, filtered lists, OG stats) go to the per-stage work_dir.
+orthofinder:
+  work_dir: /maps/projects/echo/people/blv970/immune_test/outputs/03_orthofinder
+  input_dir: /maps/projects/echo/people/blv970/immune_test/ortho_input
+  # Deterministic Results_kestrel folder (run_orthofind.sh -n "$ORTHO_RUN_NAME").
+  orthogroups_tsv: /maps/projects/echo/people/blv970/immune_test/ortho_input/OrthoFinder/Results_kestrel/Orthogroups/Orthogroups.tsv
+  genecount_tsv: /maps/projects/echo/people/blv970/immune_test/ortho_input/OrthoFinder/Results_kestrel/Orthogroups/Orthogroups.GeneCount.tsv
+  duplications_tsv: /maps/projects/echo/people/blv970/immune_test/ortho_input/OrthoFinder/Results_kestrel/Gene_Duplication_Events/Duplications.tsv
+  orthologues_dir: /maps/projects/echo/people/blv970/immune_test/ortho_input/OrthoFinder/Results_kestrel/Orthologues/Orthologues_Kestrel
+  reference_mouse: reference_mouse_final.csv
+  master_lookup: master_lookup_table.csv
+  filtered_list: Final_Filtered_List.csv
+  og_stats_summary: OG_stats_summary.tsv
+  filtered_with_og_stats: Final_Filtered_List_with_OG_stats.csv
+  filtered_with_orthology: Final_Filtered_List_with_OG_stats_and_orthology.csv
+
+# =============================================================================
+# Stage 04 - tiering   (outputs -> outputs/04_tiering)
+# =============================================================================
+tiering:
+  work_dir: /maps/projects/echo/people/blv970/immune_test/outputs/04_tiering
+  master_list: Immune_Gene_Master_List.csv
+  annotated_final: Immune_Annotated_Final.csv
+  unmapped_symbols: Unmapped_Gene_Info_Symbols.txt
+  predict_result: Immune_Predict_Result_Final.csv
+  predict_with_og_stats: Immune_Predict_Result_Final_with_OG_stats.csv
+  unmapped_og_proteins: Unmapped_OG_ProteinIDs.txt
+  final_table: Immune_Predict_Result_Final_with_OG_and_Orthology.csv
+  figure_dir: figures

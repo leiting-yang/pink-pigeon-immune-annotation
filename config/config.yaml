@@ -1,154 +1,138 @@
 # =============================================================================
-# Immune-gene annotation pipeline - central configuration
+# Immune-gene annotation pipeline - central configuration (template)
 # -----------------------------------------------------------------------------
-# The example values below are the reference Pink Pigeon setup; replace them
-# with your own paths, species and filenames.
-# =============================================================================
-# This file is the single source of truth for all data paths and parameters
-# used by the Python stages. Every Python script accepts `--config <this file>`
-# and reads its defaults from here; any value can still be overridden on the
-# command line (CLI argument wins over the config value).
+# The example values below are the reference Pink Pigeon setup; replace them with
+# your own paths, species and filenames. Every Python script accepts
+# `--config <this file>` and reads its defaults here; any value can be overridden
+# on the command line (CLI wins over the config value).
 #
-# SLURM batch scripts (interproscan_run.sh, run_kofam.sh, run_orthofind.sh) keep
-# their own clearly-marked USER CONFIG block at the top, because they also carry
-# HPC-specific resource requests (partition, memory, email). Keep those in sync
-# with the paths below by hand.
+# LAYOUT CONVENTION (tidy outputs):
+#   * INPUT files are referenced by ABSOLUTE paths, so each stage finds them
+#     regardless of its work_dir.
+#   * OUTPUT files go under  <workspace>/outputs/0X_<stage>/  (per-stage folders).
 #
-# Edit the absolute paths in `reference:` and `external_data:` once for your
-# environment. Relative paths are resolved against `work_dir` of each stage.
+#   <workspace>/
+#   ├── <genome>.fasta / <genome>.gff3 / <Target>.faa / *_biomart.csv / go_terms...
+#   ├── ortho_input/                       (OrthoFinder input + its Results_<name>)
+#   └── outputs/
+#       ├── 01_interproscan/  02_kofamscan/  03_orthofinder/  04_tiering/(figures/)
+#
+# The SLURM batch scripts read config/cluster.sh (not this file); keep the
+# per-stage *_WORK_DIR values there in sync with the work_dir values here.
 # =============================================================================
 
-# Root working directory. Stage work_dirs below are usually subfolders of this.
+# Root working directory (holds the inputs and the outputs/ tree).
 project_root: /path/to/your/workspace
 
 # -----------------------------------------------------------------------------
-# Reference inputs (produced by the genome annotation project / downloaded once)
+# Reference inputs (absolute paths; produced by the annotation project / downloaded)
 # -----------------------------------------------------------------------------
 reference:
-  # Raw genome annotation with simple chromosome IDs (1, 2, Z, W, ...)
-  gff3_raw: /maps/projects/echo/data/PPigeons/Annotation/Nesoenas_mayeri-GCA_963082525.1-2023_10-genes.gff3
-  # Reference genome FASTA (INSDC accessions as sequence IDs)
-  genome_fasta: /maps/projects/echo/data/PPigeons/Reference/GCA_963082525.1_bNesMay2.1_genomic.fasta
-  # Target-species protein FASTA, used as input to BOTH InterProScan and
-  # KofamScan. Produced from the genome FASTA + GFF3 by
-  # 00_preprocess/extract_proteins.sh, i.e.:
-  #   gffread -y PinkPigeon.faa -g <genome_fasta> <gff3_raw>
-  protein_fasta: PinkPigeon.faa
+  gff3_raw: /path/to/your/workspace/Nesoenas_mayeri-GCA_963082525.1-2023_10-genes.gff3
+  genome_fasta: /path/to/your/workspace/GCA_963082525.1_bNesMay2.1_genomic.fasta
+  # Produced by 00_preprocess/extract_proteins.sh (gffread + '.'/'*' cleaning).
+  protein_fasta: /path/to/your/workspace/PinkPigeon.faa
 
 # -----------------------------------------------------------------------------
-# External data that MUST be prepared manually (see README "Manual steps")
+# External data (absolute paths). Small bundled copies live in reference_data/;
+# see reference_data/CITATIONS.md for provenance and download instructions.
 # -----------------------------------------------------------------------------
 external_data:
-  # AmiGO export: all children of GO:0002376 (immune system process) plus
-  # "immune" keyword hits in MF/CC. Comma-separated GO term list.
-  go_terms_immune: go_terms_immune_system_process.txt
-  # Conserved immune-gene functional database used for final enrichment
-  # (unpublished; avian-oriented). Set species.gene_info_enrichment: false to skip.
-  gene_info: gene_info.csv
-  # Target-species native gene-symbol table from the annotation pipeline
-  # (2 columns: Gene Symbol <TAB> Gene ID)
-  native_symbols: Nesoenas_genes_by_name.tsv
+  go_terms_immune: /path/to/your/workspace/go_terms_immune_system_process.txt
+  # Optional conserved immune-gene database (avian-oriented). Set
+  # species.gene_info_enrichment: false to skip it.
+  gene_info: /path/to/your/workspace/gene_info.csv
+  # Target native gene symbols. Produced by 00_preprocess/extract_native_symbols.sh
+  # (ON by default), or supply your own 2-column "Symbol <TAB> GeneID" file.
+  native_symbols: /path/to/your/workspace/PinkPigeon_genes_by_name.tsv
 
 # =============================================================================
 # Species configuration  (drives all species-specific columns and logic)
 # =============================================================================
-# To reuse the pipeline for a different study:
-#   - set `target` to your focal species (this MUST match the basename of its
-#     protein FASTA in the OrthoFinder input dir, e.g. PinkPigeon -> PinkPigeon.fa)
-#   - list your reference species under `reference`. Each needs a BioMart CSV
-#     (basename must likewise match its FASTA). A reference may optionally carry
-#     a curated functional list (Category1 / Subcategory / UniProt_function).
-#   - adjust the symbol-prediction settings to taste.
 species:
   target: PinkPigeon
 
-  # Reference species. `biomart` is required (Ensembl BioMart export); the
-  # `curated_list` is optional extra functional annotation for that species.
+  # Reference species. `biomart` is required; `curated_list` is optional.
   reference:
     - name: Mouse
-      biomart: processed_mouse_biomart.csv
-      curated_list: ImmuneGeneFunction_20240520.csv
+      biomart: /path/to/your/workspace/processed_mouse_biomart.csv
+      curated_list: /path/to/your/workspace/ImmuneGeneFunction_20240520.csv
     - name: Chicken
-      biomart: processed_chicken_biomart.csv
+      biomart: /path/to/your/workspace/processed_chicken_combined.csv
     - name: ZebraFinch
-      biomart: processed_zebrafinch_biomart.csv
+      biomart: /path/to/your/workspace/processed_zebrafinch_combined.csv
 
   # --- Symbol prediction (stage 04, process_symbols.py) ---
-  # Species whose intersection is treated as a high-confidence consensus (e.g.
-  # the two avian references). Use [] to disable the consensus rule.
-  consensus_group: [Chicken, ZebraFinch]
-  # Single-species fallback order after the consensus rule. The KofamScan KO
-  # symbol is always the final fallback and need not be listed.
+  consensus_group: [Chicken, ZebraFinch]     # [] to disable the consensus rule
   prediction_priority: [Chicken, ZebraFinch, Mouse]
 
   # --- Final functional enrichment (stage 04, add_gene_info_3.py) ---
-  # Set false to skip the gene_info.csv enrichment step (e.g. for non-avian work
-  # where that database does not apply).
-  gene_info_enrichment: true
+  gene_info_enrichment: true                 # false to skip gene_info.csv (non-avian)
 
 # =============================================================================
-# Stage 00 - preprocessing (chromosome-ID normalization)
+# Stage 00 - preprocessing (chromosome-ID normalization; OPTIONAL)
 # =============================================================================
-# OPTIONAL stage. Chromosome renaming is only needed when the genome FASTA and
-# the GFF3 use different sequence IDs (e.g. an Ensembl GFF with simple IDs 1,2,Z
-# against an INSDC FASTA). Most NCBI RefSeq assemblies already match, so you can
-# skip gffid_change.sh entirely and point gff3_raw at the original GFF3. The
-# chromosome_map below is only read by gffid_change.sh.
+# Only needed when the genome FASTA and GFF3 use different sequence IDs (e.g. an
+# Ensembl GFF with simple IDs against an INSDC FASTA). Most NCBI RefSeq assemblies
+# already match, so you can skip gffid_change.sh and point gff3_raw at the raw GFF3.
 preprocess:
-  work_dir: /path/to/your/workspace/preprocess
-  # Chromosome ID mapping table (simple ID <TAB> INSDC accession); species-specific
+  work_dir: /path/to/your/workspace
   chromosome_map: config/chromosome_id_map.tsv
-  gff3_renamed: NM_genes.renamed.gff3      # all chromosomes, IDs renamed
-  gff3_autosomes: NM_genes.final.gff3      # autosomes only (Z / W removed)
+  gff3_renamed: NM_genes.renamed.gff3
+  gff3_autosomes: NM_genes.final.gff3
 
 # =============================================================================
-# Stage 01 - InterProScan
+# Stage 01 - InterProScan   (outputs -> outputs/01_interproscan)
 # =============================================================================
+# interproscan_run.sh writes ipr_chunks/ and ipr_out/ into IPR_WORK_DIR
+# (config/cluster.sh), which MUST equal this work_dir.
 interproscan:
-  work_dir: /path/to/your/workspace/interproscan
-  merged_tsv: ipr_out/interproscan_merged.tsv          # merged InterProScan output
-  immune_results: interproscan_immune_results.csv      # immunewash.py output
+  work_dir: /path/to/your/workspace/outputs/01_interproscan
+  merged_tsv: ipr_out/interproscan_merged.tsv
+  immune_results: interproscan_immune_results.csv
 
 # =============================================================================
-# Stage 02 - KofamScan
+# Stage 02 - KofamScan   (outputs -> outputs/02_kofamscan)
 # =============================================================================
+# run_kofam.sh writes result_kofam_detail.txt into KOFAM_WORK_DIR
+# (config/cluster.sh), which MUST equal this work_dir/processing_dir.
 kofamscan:
-  work_dir: /path/to/your/workspace/kofam
-  processing_dir: /path/to/your/workspace/kofam/processing
-  kegg_json: ko00001.json                              # KEGG ko00001 hierarchy
-  kofam_detail: result_kofam_detail.txt                # raw KofamScan detail-tsv
+  work_dir: /path/to/your/workspace/outputs/02_kofamscan
+  processing_dir: /path/to/your/workspace/outputs/02_kofamscan
+  kegg_json: ko00001.json
+  kofam_detail: result_kofam_detail.txt
   transcript_to_gene: transcript_to_gene.txt
   step_filtered_score: step1_filtered_score.txt
   step_immune_only: step2_immune_only.txt
   step_deduplicated: step3_final_deduplicated.txt
   gene_level: final_kofam_gene_level.tsv
-  annotated: final_kofam_annotated.tsv                 # final KofamScan output
+  annotated: final_kofam_annotated.tsv
 
 # =============================================================================
-# Stage 03 - OrthoFinder
+# Stage 03 - OrthoFinder   (Python-stage tables -> outputs/03_orthofinder)
 # =============================================================================
+# input_dir and the OrthoFinder result paths stay under ortho_input/ (absolute),
+# where the SLURM job runs OrthoFinder. run_orthofind.sh uses -n "$ORTHO_RUN_NAME"
+# so the results folder is a fixed Results_<name> (replace <name> below to match).
 orthofinder:
-  work_dir: /path/to/your/workspace/orthofinder
-  input_dir: ortho_input                               # 4 species protein FASTAs
-  # OrthoFinder standard outputs (paths under the Results_* folder it creates)
-  orthogroups_tsv: Orthogroups.tsv
-  genecount_tsv: Orthogroups.GeneCount.tsv
-  duplications_tsv: Duplications.tsv
-  orthologues_dir: Orthologues/Orthologues_PinkPigeon
-  # Reference immune-protein lookup tables
+  work_dir: /path/to/your/workspace/outputs/03_orthofinder
+  input_dir: /path/to/your/workspace/ortho_input
+  orthogroups_tsv: /path/to/your/workspace/ortho_input/OrthoFinder/Results_pinkpigeon/Orthogroups/Orthogroups.tsv
+  genecount_tsv: /path/to/your/workspace/ortho_input/OrthoFinder/Results_pinkpigeon/Orthogroups/Orthogroups.GeneCount.tsv
+  duplications_tsv: /path/to/your/workspace/ortho_input/OrthoFinder/Results_pinkpigeon/Gene_Duplication_Events/Duplications.tsv
+  orthologues_dir: /path/to/your/workspace/ortho_input/OrthoFinder/Results_pinkpigeon/Orthologues/Orthologues_PinkPigeon
   reference_mouse: reference_mouse_final.csv
   master_lookup: master_lookup_table.csv
-  # Filtering / statistics outputs
   filtered_list: Final_Filtered_List.csv
   og_stats_summary: OG_stats_summary.tsv
   filtered_with_og_stats: Final_Filtered_List_with_OG_stats.csv
   filtered_with_orthology: Final_Filtered_List_with_OG_stats_and_orthology.csv
 
 # =============================================================================
-# Stage 04 - tiering (evidence integration + symbol prediction + figures)
+# Stage 04 - tiering   (outputs -> outputs/04_tiering)
 # =============================================================================
 tiering:
-  work_dir: /path/to/your/workspace/tier2
+  work_dir: /path/to/your/workspace/outputs/04_tiering
   master_list: Immune_Gene_Master_List.csv
   annotated_final: Immune_Annotated_Final.csv
   unmapped_symbols: Unmapped_Gene_Info_Symbols.txt

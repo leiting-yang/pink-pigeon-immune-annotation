@@ -37,5 +37,11 @@ module load gffread
 # -g : the genome FASTA to pull sequences from
 gffread -y "$OUT" -g "$GENOME" "$GFF"
 
-echo "Done. Protein FASTA written to: $OUT"
+# gffread can emit '.' (untranslatable codon) and '*' (stop) inside the protein
+# sequences. InterProScan, diamond (OrthoFinder) and HMMER (KofamScan) all reject
+# these characters, so normalize once here: '.' -> X (unknown residue), drop '*'.
+# This is why the downstream annotation tools get a valid FASTA every time.
+sed -i -e '/^>/!s/\./X/g' -e '/^>/!s/\*//g' "$OUT"
+
+echo "Done. Protein FASTA written to: $OUT (cleaned: '.'->X, '*' removed)"
 echo "Sequences: $(grep -c '^>' "$OUT")"

@@ -34,11 +34,15 @@ CLUSTER_CONFIG="${CLUSTER_CONFIG:-${SLURM_SUBMIT_DIR:-.}/config/cluster.sh}"
 source "$CLUSTER_CONFIG"
 
 # ----- Script-local settings -------------------------------------------------
-INFA="$PROTEIN_FASTA"              # target-species protein FASTA (from extract_proteins.sh)
+# Work dir for this stage's outputs (ipr_chunks/, ipr_out/). Falls back to $PWD
+# if cluster.sh does not define IPR_WORK_DIR (older configs).
+STAGE_DIR="${IPR_WORK_DIR:-$PWD}"
+# Absolute protein FASTA; fall back to $PWD/$PROTEIN_FASTA for older configs.
+INFA="${PROTEIN_FASTA_PATH:-$PWD/${PROTEIN_FASTA:-PinkPigeon.faa}}"
 NCHUNK=8                            # number of chunks (must match --array 1-N)
-CHUNK_DIR="$PWD/ipr_chunks"
-OUTDIR="$PWD/ipr_out"
-TMPDIR="${SLURM_TMPDIR:-$PWD/ipr_tmp}"
+CHUNK_DIR="${STAGE_DIR}/ipr_chunks"
+OUTDIR="${STAGE_DIR}/ipr_out"
+TMPDIR="${SLURM_TMPDIR:-${STAGE_DIR}/ipr_tmp}"
 MERGE_TASK_ID=9                    # array index reserved for the merge step
 # -----------------------------------------------------------------------------
 

@@ -1,9 +1,11 @@
-# Conda environment for the Python post-processing stages of the pipeline.
+# Conda environment for the pipeline's Python stages plus KofamScan.
 # Create with:  conda env create -f envs/environment.yml
 # Activate with: conda activate immune_annotation
 #
-# The heavy annotation tools (InterProScan, KofamScan, OrthoFinder, seqkit) are
-# loaded as HPC modules inside the SLURM scripts and are NOT installed here.
+# InterProScan, OrthoFinder and seqkit are loaded as HPC modules inside the SLURM
+# scripts and are NOT installed here. KofamScan (exec_annotation) IS installed
+# here because it is not usually available as a module; it still needs its HMM
+# database downloaded separately (see the README, "KofamScan database").
 name: immune_annotation
 channels:
   - conda-forge
@@ -17,3 +19,4 @@ dependencies:
   - matplotlib
   - seaborn
   - matplotlib-venn
+  - kofamscan

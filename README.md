@@ -39,15 +39,36 @@ conda env create -f envs/environment.yml
 conda activate immune_annotation
 ```
 
-**Heavy annotation tools** are loaded as HPC modules inside the SLURM scripts,
-not installed by the environment above:
+**Heavy annotation tools.** InterProScan, seqkit and OrthoFinder are loaded as
+HPC modules inside the SLURM scripts. KofamScan is installed by the conda
+environment above (it is rarely available as a module) but still needs its HMM
+database downloaded once (see "KofamScan database" below).
 
-| Tool | Version | Used by |
-|------|---------|---------|
-| InterProScan | 5.73-104.0 | `01_interproscan/interproscan_run.sh` |
-| seqkit | (module) | FASTA splitting for InterProScan |
-| KofamScan (`exec_annotation`) | conda env `immune_annotation` | `02_kofamscan/run_kofam.sh` |
-| OrthoFinder | 3.0.1b1 | `03_orthofinder/run_orthofind.sh` |
+| Tool | Version | Provided by | Used by |
+|------|---------|-------------|---------|
+| InterProScan | 5.73-104.0 | HPC module | `01_interproscan/interproscan_run.sh` |
+| seqkit | (module) | HPC module | FASTA splitting for InterProScan |
+| KofamScan (`exec_annotation`) | (bioconda) | conda env `immune_annotation` | `02_kofamscan/run_kofam.sh` |
+| OrthoFinder | 3.0.1b1 | HPC module | `03_orthofinder/run_orthofind.sh` |
+
+Each SLURM script `module load`s its own prerequisites (e.g. `interproscan_run.sh`
+loads `openjdk` before `interproscan`). To check every dependency resolves on
+your cluster before running, use `module spider <tool>` and the helper
+`test/check_deps.sh`.
+
+**KofamScan database.** KofamScan needs the KO HMM profiles + `ko_list`, which are
+NOT installed by conda. Download them once and point `KOFAM_DB_CONFIG`
+(`config/cluster.sh`) at a `config.yml` that references them:
+
+```bash
+mkdir -p <db_dir> && cd <db_dir>
+wget https://www.genome.jp/ftp/db/kofam/ko_list.gz && gunzip ko_list.gz
+wget https://www.genome.jp/ftp/db/kofam/profiles.tar.gz && tar xzf profiles.tar.gz
+cat > config.yml <<EOF
+profile: <db_dir>/profiles
+ko_list: <db_dir>/ko_list
+EOF
+```
 
 ---
 
@@ -90,8 +111,8 @@ replace them with your own.
 |------|------------|------------|
 | `GCA_..._genomic.fasta` | `reference.genome_fasta` | Genome nucleotide FASTA. Sequence IDs are whatever your assembly uses (INSDC accessions, RefSeq, or simple `1/2/Z`). |
 | `Nesoenas_...-genes.gff3` | `reference.gff3_raw` | Gene-model annotation GFF3 for the same assembly. |
-| `PinkPigeon.faa` | `reference.protein_fasta` | Target protein FASTA. **Produced** by stage 00 `extract_proteins.sh` from the two files above; you can also supply your own. Feeds InterProScan and KofamScan. |
-| `Nesoenas_genes_by_name.tsv` | `external_data.native_symbols` | The annotation's own gene symbols: 2 columns, `Symbol <TAB> GeneID`, no required header. Used only to compare predicted vs. native symbols; supply an empty/partial file if you have none. |
+| `PinkPigeon.faa` | `reference.protein_fasta` | Target protein FASTA. **Produced** by stage 00 `extract_proteins.sh` (which also cleans gffread's `.`/`*` characters so InterProScan/OrthoFinder/KofamScan accept it); you can also supply your own. Feeds InterProScan and KofamScan. |
+| `PinkPigeon_genes_by_name.tsv` | `external_data.native_symbols` | The annotation's own gene symbols: 2 columns, `Symbol <TAB> GeneID`. **Produced by default** by stage 00 `extract_native_symbols.sh` from the GFF3; or supply your own (an empty file is fine if you have none). Used to compare predicted vs. native symbols. |
 
 **B. Reference species (one set per entry in `species.reference`)** — used by
 OrthoFinder and the reference-symbol lookup:
@@ -109,46 +130,50 @@ OrthoFinder and the reference-symbol lookup:
 | `go_terms_immune_system_process.txt` | `external_data.go_terms_immune` | AmiGO export: all children of GO:0002376 plus "immune" MF/CC hits, as a single comma-separated list. Defines the InterProScan immune filter. |
 | `gene_info.csv` | `external_data.gene_info` | **Optional** conserved immune-gene functional database (avian-oriented, keyed by `entrezgene_accession`). Set `species.gene_info_enrichment: false` to skip it for non-avian work. |
 
-**D. Downloaded automatically** (no manual prep): the KEGG `ko00001.json`
-hierarchy is fetched by `02_kofamscan/prepare_db.py`. If the compute node has no
-internet, download it elsewhere and drop it into the KofamScan `processing_dir`.
+Small copies of the reference tables in **B** and **C** (the BioMart/immune-gene
+CSVs and the GO-term list) are bundled in [`reference_data/`](reference_data/);
+see [`reference_data/CITATIONS.md`](reference_data/CITATIONS.md) for their
+provenance and for how to download the large reference proteome FASTAs (Ensembl).
+
+**D. Downloaded once, not in the repo:**
+- **KofamScan HMM database** (profiles + `ko_list`) — see "KofamScan database" in
+  section 1. Point `KOFAM_DB_CONFIG` (`config/cluster.sh`) at its `config.yml`.
+- **KEGG `ko00001.json`** hierarchy — fetched by `02_kofamscan/prepare_db.py`. If
+  the compute node has no internet, download it elsewhere and drop it into the
+  KofamScan `processing_dir`.
 
 ### 3.2 Where to put the files (directory organization)
 
-Paths in the config are resolved as follows:
-
-- **Absolute paths always work** and are the simplest choice. If you are unsure,
-  give every input an absolute path in `config/config.yaml` and stop worrying
-  about the rules below.
-- **Relative filenames** are resolved against the **`work_dir` of the stage that
-  reads them**. So place each file in the work_dir of its consumer:
-
-  | Input | Resolved against |
-  |-------|------------------|
-  | `go_terms_immune` | `interproscan.work_dir` |
-  | `biomart`, `curated_list` (per species) | `orthofinder.work_dir` |
-  | `gene_info`, `native_symbols` | current directory when you run stage 04 (so an absolute path is safest here) |
-  | genome FASTA, GFF3 | `reference.*` — give absolute paths |
-
-- **OrthoFinder input directory** (`cluster.sh` `ORTHO_INPUT_DIR` /
-  `orthofinder.input_dir`) must contain **exactly** the target + reference
-  protein FASTAs, each named `<SpeciesName>.fa` to match the config. Nothing else.
-
-A workable layout keeps one directory per stage (matching the `work_dir` values
-in the config) and drops each input into the stage that consumes it:
+The shipped config uses **absolute paths for every input**, so inputs can live
+anywhere (typically the workspace root) and each stage finds them regardless of
+its `work_dir`. Outputs are written into **per-stage folders** under
+`<workspace>/outputs/`:
 
 ```
 workspace/
-├── interproscan/   go_terms_immune_system_process.txt   (+ IPR outputs)
-├── kofam/          (KofamScan outputs; ko00001.json auto-downloaded)
-├── orthofinder/    processed_*_biomart.csv  ImmuneGeneFunction_*.csv
-│   └── ortho_input/  PinkPigeon.fa  Mouse.fa  Chicken.fa  ZebraFinch.fa
-│                     (protein FASTAs ONLY, nothing else)
-└── tier2/          gene_info.csv  Nesoenas_genes_by_name.tsv  (+ final tables)
+├── <genome>.fasta  <genome>.gff3  <Target>.faa            (target inputs)
+├── go_terms_immune_system_process.txt  gene_info.csv       (external data)
+├── processed_*_biomart.csv  ImmuneGeneFunction_*.csv       (reference tables)
+├── <Target>_genes_by_name.tsv                              (native symbols)
+├── ortho_input/   <Target>.faa Mouse.faa Chicken.faa ZebraFinch.faa
+│   └── OrthoFinder/Results_<name>/   (OrthoFinder output; -n makes the name fixed)
+└── outputs/
+    ├── 01_interproscan/   ipr_chunks/  ipr_out/  interproscan_immune_results.csv
+    ├── 02_kofamscan/       result_kofam_detail.txt  step*.txt  final_kofam_*.tsv
+    ├── 03_orthofinder/     master_lookup_table.csv  Final_Filtered_List*  OG_stats_*
+    └── 04_tiering/         Immune_*.csv  figures/
 ```
 
-The target genome FASTA and GFF3 usually live wherever the annotation project
-put them; reference them with absolute paths under `reference:`.
+Notes:
+- Keep the per-stage `*_WORK_DIR` values in `config/cluster.sh` in sync with the
+  matching `work_dir` in `config/config.yaml`, so the SLURM raw outputs
+  (`ipr_out/`, `result_kofam_detail.txt`) land where the Python stages look.
+- The **OrthoFinder input directory** (`ORTHO_INPUT_DIR` / `orthofinder.input_dir`)
+  must contain **exactly** the target + reference protein FASTAs, each named
+  `<SpeciesName>.fa`/`.faa` to match the config. Nothing else.
+- Create the output folders once before running:
+  `mkdir -p <workspace>/outputs/{01_interproscan,02_kofamscan,03_orthofinder,04_tiering}`
+  (the SLURM scripts also `mkdir -p` their own).
 
 ---
 
@@ -160,8 +185,13 @@ to days; submit them, wait, then run the local Python steps. The driver
 
 ### Stage 00 - preprocessing
 ```bash
-# extract the protein FASTA from the genome + GFF3 (input to stages 01 and 02)
+# extract the protein FASTA from the genome + GFF3 (input to stages 01 and 02).
+# extract_proteins.sh also cleans gffread's '.'/'*' so all downstream tools accept it.
 bash 00_preprocess/extract_proteins.sh -g <genome.fasta> -a <raw.gff3> -o PinkPigeon.faa
+
+# native gene symbols from the GFF3 (ON by default; skip if you have your own,
+# or if your GFF has no symbols). Writes the 2-column native-symbol table.
+bash 00_preprocess/extract_native_symbols.sh -g <raw.gff3> -o PinkPigeon_genes_by_name.tsv
 
 # OPTIONAL: normalize chromosome IDs. Only needed when the genome FASTA and the
 # GFF3 use different sequence IDs (e.g. an Ensembl GFF with simple IDs). Most
@@ -176,12 +206,15 @@ bash 00_preprocess/seqid_list.sh -f <genome.fasta> -g <raw.gff3>
 
 ### Stage 01 - InterProScan  (HPC)
 ```bash
-# 1. MANUAL: split the protein FASTA first
-module load seqkit && seqkit split -p 8 -O ipr_chunks PinkPigeon.faa
-# 2. array job (one InterProScan run per chunk)
-sbatch 01_interproscan/interproscan_run.sh
+# 1. MANUAL: split the protein FASTA into the stage work dir's ipr_chunks/
+#    (must be <IPR_WORK_DIR>/ipr_chunks, e.g. outputs/01_interproscan/ipr_chunks)
+module load seqkit
+seqkit split -p 8 -O <workspace>/outputs/01_interproscan/ipr_chunks <workspace>/PinkPigeon.faa
+# 2. array job (one InterProScan run per chunk). Pass CLUSTER_CONFIG so the job
+#    finds config/cluster.sh (or submit from the repo root).
+sbatch --export=ALL,CLUSTER_CONFIG=$PWD/config/cluster.sh 01_interproscan/interproscan_run.sh
 # 3. merge the chunk outputs
-sbatch --array=9 01_interproscan/interproscan_run.sh
+sbatch --array=9 --export=ALL,CLUSTER_CONFIG=$PWD/config/cluster.sh 01_interproscan/interproscan_run.sh
 # 4. filter to immune GO terms (local)
 python 01_interproscan/immunewash.py --config config/config.yaml
 ```
@@ -243,18 +276,23 @@ These are **not** automated and need human action or review:
 ```
 immune-annotation-pipeline/
 ├── README.md
+├── CHANGELOG.md                 bug fixes / improvements (see for known issues)
 ├── run_pipeline.sh              driver documenting run order
 ├── pipeline_common.py          shared species/column resolution helpers
 ├── config/
 │   ├── config.yaml              all paths, species and parameters (Python stages)
 │   ├── cluster.sh               shell-side values for the SLURM scripts
 │   └── chromosome_id_map.tsv    simple ID -> INSDC accession
-├── envs/environment.yml         conda environment
-├── 00_preprocess/              chromosome-ID normalization + QC
+├── reference_data/             bundled small reference tables + CITATIONS.md
+├── envs/environment.yml         conda environment (incl. kofamscan)
+├── 00_preprocess/              protein extraction, native symbols, chr-ID QC
 ├── 01_interproscan/            InterProScan run + immune GO filtering
 ├── 02_kofamscan/               KofamScan run + KEGG immune filtering
 ├── 03_orthofinder/             OrthoFinder + orthogroup statistics
 ├── 04_tiering/                 evidence integration + symbols + figures
+├── test/                       dependency check + example per-species config
+│   ├── check_deps.sh           verify every external dependency resolves
+│   ├── config.yaml  cluster.sh example config for a second-species run
 └── docs/
     ├── PIPELINE_OVERVIEW.md    detailed per-script I/O reference
     └── OUTPUT_COLUMNS.md       column dictionary for the final table

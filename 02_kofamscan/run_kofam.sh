@@ -29,10 +29,12 @@ CLUSTER_CONFIG="${CLUSTER_CONFIG:-${SLURM_SUBMIT_DIR:-.}/config/cluster.sh}"
 source "$CLUSTER_CONFIG"
 
 # ----- Script-local settings -------------------------------------------------
-WORK_DIR="$KOFAM_WORK_DIR"
-INPUT_FASTA="${WORK_DIR}/${PROTEIN_FASTA}"
+WORK_DIR="$KOFAM_WORK_DIR"                                   # output dir for this stage
+# Absolute protein FASTA; fall back to $WORK_DIR/$PROTEIN_FASTA for older configs.
+INPUT_FASTA="${PROTEIN_FASTA_PATH:-${WORK_DIR}/${PROTEIN_FASTA}}"
 CONFIG_FILE="$KOFAM_DB_CONFIG"
 OUTPUT_FILE="result_kofam_detail.txt"
+mkdir -p "${WORK_DIR}"                                       # ensure output dir exists
 # -----------------------------------------------------------------------------
 
 # 1. Environment

@@ -26,7 +26,12 @@ manual() { echo; echo ">>> MANUAL / HPC STEP: $*"; echo ">>> Submit it, wait for
 # -----------------------------------------------------------------------------
 stage_preprocess() {
   banner "Stage 00 - preprocess"
+  # Protein FASTA (also cleans gffread '.'/'*' so InterProScan/OrthoFinder/KofamScan
+  # all accept it). Name it <Target>.faa to match species.target in the config.
   bash 00_preprocess/extract_proteins.sh -g "<genome.fasta>" -a "<raw.gff3>" -o PinkPigeon.faa
+  # Native gene symbols from the GFF (ON by default). Skip this line if you have
+  # your own native symbol table or your GFF carries no symbols.
+  bash 00_preprocess/extract_native_symbols.sh -g "<raw.gff3>" -o PinkPigeon_genes_by_name.tsv
   # OPTIONAL: only needed if the genome FASTA and GFF3 use different chromosome
   # IDs (e.g. Ensembl simple IDs). Skip it if they already match (most NCBI
   # RefSeq assemblies). The core pipeline uses the raw GFF3 regardless.
