@@ -43,7 +43,11 @@ def load_native_symbols(filepath):
     """Native TSV: column 0 = Gene Symbol, column 1 = Gene ID -> {id: SYMBOL}."""
     print(f"Loading native symbols from {filepath}...")
     id_to_symbol = {}
-    df = pd.read_csv(filepath, sep="\t", header=None, dtype=str)
+    try:
+        df = pd.read_csv(filepath, sep="\t", header=None, dtype=str)
+    except pd.errors.EmptyDataError:
+        print("    native symbol file is empty; no native symbols loaded")
+        return id_to_symbol
     for index, row in df.iterrows():
         if len(row) < 2:
             continue

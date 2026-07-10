@@ -17,6 +17,7 @@ A protein is kept if ANY of its GO annotations contains ANY whitelist term.
 """
 
 import argparse
+import csv
 import os
 import sys
 
@@ -75,9 +76,9 @@ def main():
     go_default = resolve(None, cfg, "external_data", "go_terms_immune",
                          default="go_terms_immune_system_process.txt")
 
-    input_tsv = resolve(args.input, {}, default=os.path.join(work, merged_rel) if work else merged_rel)
-    go_file = resolve(args.go_terms, {}, default=os.path.join(work, go_default) if work else go_default)
-    output_csv = resolve(args.output, {}, default=os.path.join(work, immune_rel) if work else immune_rel)
+    input_tsv = args.input if args.input is not None else (os.path.join(work, merged_rel) if work else merged_rel)
+    go_file = args.go_terms if args.go_terms is not None else (os.path.join(work, go_default) if work else go_default)
+    output_csv = args.output if args.output is not None else (os.path.join(work, immune_rel) if work else immune_rel)
 
     print("Filtering InterProScan output for immune-related GO terms...")
 
@@ -86,8 +87,11 @@ def main():
         print(f"ERROR: input not found: {input_tsv}", file=sys.stderr)
         sys.exit(1)
     print(f"Reading {input_tsv} ...")
+    # InterProScan TSV is tab-separated and unquoted; description fields can
+    # contain literal '"'. Disable quote handling so a lone '"' is not treated
+    # as a quoted field (which raises "expected after '\"'" ParserErrors).
     df = pd.read_csv(input_tsv, sep="\t", header=None, names=COLUMN_NAMES,
-                     dtype=str, engine="python")
+                     dtype=str, engine="python", quoting=csv.QUOTE_NONE)
     print(f"Read {len(df)} rows")
 
     # --- Normalize the GO-annotation column ---

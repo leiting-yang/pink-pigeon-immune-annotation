@@ -85,7 +85,9 @@ def make_aggregate_gene(reference_species):
     def aggregate_gene(group):
         primary = choose_primary_row(group)
         out = {
-            "GeneID": primary["GeneID"],
+            # Newer pandas excludes the grouping column from each group, so read
+            # the GeneID from the group key instead of a row of the group.
+            "GeneID": group.name,
             "OG_List": unique_join(group["Orthogroup"].dropna().astype(str).unique()),
             "OG_Count": int(group["Orthogroup"].dropna().astype(str).nunique()),
             "Primary_OG": primary.get("Orthogroup", np.nan),
